@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zotero Chat</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        /* Model dropdown styling */
+        #modelSelect {
+            width: 100%;
+            padding: 5px;
+            border-radius: 3px;
+            border: 1px solid #ccc;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: monospace;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        #modelSelect.models-loaded {
+            background-color: rgba(76, 175, 80, 0.2);
+            transition: background-color 0.5s ease;
+        }
+        
+        #modelSelect.loading {
+            animation: loading-pulse 1.5s infinite;
+        }
+        
+        #modelSelect[disabled] {
+            background-color: #f0f0f0;
+            color: #888;
+            cursor: not-allowed;
+        }
+        
+        #modelSelect option[value="loading"] {
+            color: #888;
+            font-style: italic;
+        }
+        
+        @keyframes loading-pulse {
+            0% { opacity: 0.7; }
+            50% { opacity: 1; }
+            100% { opacity: 0.7; }
+        }
+        
+        /* Vector database indicator styling */
+        .vector-db-indicator {
+            color: #e74c3c;
+            font-weight: bold;
+            margin-left: 5px;
+            font-size: 0.9em;
+        }
+
+        .chat-messages {
+            flex-grow: 1;
+            overflow-y: auto;
+            margin-bottom: 1rem;
+            display: flex;
+            flex-direction: column-reverse;  /* This will make new messages appear at the top */
+        }
+
+        .message {
+            margin: 1rem 0;
+            border-radius: 8px;
+            order: 0;  /* Ensure messages maintain their order */
+        }
+    </style>
+    
+    <!-- Direct model fetching script -->
+    <script>
+    // This script gets executed in the head to ensure it runs before main.js
+    document.addEventListener('DOMContentLoaded', function() {
+        console.log('[Direct] Document loaded, fetching models once.');
+        
+        // Override fetchAvailableModels in main.js to avoid conflicts
+        window.modelsFetchedDirectly = false;
+        
+        // Direct fetch function - only called once
+        function fetchModelsOnce() {
+            console.log('[Direct] Fetching models...');
+            
+            const modelSelect = document.getElementById('modelSelect');
+            if (!modelSelect) {
+                console.error('[Direct] Model select element not found!');
+                return;
+            }
+            
+            // Set loading state
+            modelSelect.innerHTML = '<option value="loading">Loading models...</option>';
+            modelSelect.disabled = true;
+            modelSelect.classList.add('loading');
+            
+            // Make request
+            fetch('http://localhost:5001/api/models')
+                .then(response => {
+                    console.log('[Direct] Response status:', response.status);
+                    if (!response.ok) {
+                        throw new Error(`API responded with ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('[Direct] Got data:', data);
+                    
+                    // Enable the select
+                    modelSelect.disabled = false;
+                    modelSelect.classList.remove('loading');
+                    
+                    // Clear it
+                    modelSelect.innerHTML = '';
+                    
+                    // Add models
+                    if (data.models && Array.isArray(data.models) && data.models.length > 0) {
+                        console.log('[Direct] Adding', data.models.length, 'models');
+                        
+                        // Add each model as an option
+                        data.models.forEach(model => {
+                            const option = document.createElement('option');
+                            option.value = model;
+                            option.textContent = model;
+                            modelSelect.appendChild(option);
+                        });
+                        
+                        // Visual feedback
+                        modelSelect.classList.add('models-loaded');
+                        setTimeout(() => {
+                            modelSelect.classList.remove('models-loaded');
+                        }, 1000);
+                        
+                        // Indicate that models were fetched
+                        window.modelsFetchedDirectly = true;
+                    } else {
+                        console.warn('[Direct] No models in response');
+                        const option = document.createElement('option');
+                        option.value = 'meta-llama-3.1-8b-instruct';
+                        option.textContent = 'meta-llama-3.1-8b-instruct';
+                        modelSelect.appendChild(option);
+                    }
+                })
+                .catch(error => {
+                    console.error('[Direct] Error:', error);
+                    
+                    // Reset select
+                    modelSelect.innerHTML = '';
+                    const option = document.createElement('option');
+                    option.value = 'meta-llama-3.1-8b-instruct';
+                    option.textContent = 'meta-llama-3.1-8b-instruct';
+                    modelSelect.appendChild(option);
+                    modelSelect.disabled = false;
+                    modelSelect.classList.remove('loading');
+                });
+        }
+        
+        // Call once at page load - no repeated calls
+        fetchModelsOnce();
+        
+        // Override the fetchAvailableModels function from main.js to prevent conflicts
+        window.fetchAvailableModels = function(isInitialLoad) {
+            console.log('[Direct] Original fetchAvailableModels called, but bypassed.');
+            // Do nothing - we've already fetched models
+            return;
+        };
+    });
+    </script>
+</head>
+<body>
+    <div class="container-fluid">
+        <!-- Document Selection Panel -->
+        <div class="panel document-panel">
+            <input type="text" id="searchInput" placeholder="> search documents...">
+            <div class="document-list" id="documentList">
+                {% for doc in documents %}
+                <div class="document-item">
+                    <input type="checkbox" id="doc-{{ doc.citekey }}" class="doc-checkbox">
+                    <label for="doc-{{ doc.citekey }}">
+                        <div class="doc-title">{{ doc.title }}</div>
+                        <div class="doc-meta">
+                            {{ doc.authors }} ({{ doc.year }}{% if doc.has_vector_db %}<span class="vector-db-indicator">D</span>{% endif %})
+                        </div>
+                    </label>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <!-- Chat Panel -->
+        <div class="panel chat-panel">
+            <div class="chat-messages" id="chatMessages">
+                {% for entry in chat_history %}
+                    <div class="message-group">
+                        <div class="message">
+                            <div class="message-question">{{ entry.question }}</div>
+                        </div>
+                        <div class="message">
+                            <div class="message-content">{{ entry.answer | safe }}</div>
+                            <div class="message-metadata">
+                                <span class="timestamp">{{ entry.timestamp }}</span>
+                                {% if entry.citekeys %}
+                                    <div class="citekeys">
+                                        {% for citekey in entry.citekeys %}
+                                            <span class="citekey">{{ citekey }}</span>
+                                        {% endfor %}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                {% endfor %}
+            </div>
+            <form id="chatForm" class="mt-3">
+                <input type="text" id="questionInput" placeholder="> ask a question..." spellcheck="false">
+            </form>
+        </div>
+
+        <!-- Terminal Panel -->
+        <div class="panel terminal-panel">
+            <div class="terminal-content" id="terminalContent">
+                $ python app.py
+                * Running on http://127.0.0.1:5001
+                * Debug mode: on
+            </div>
+            
+            <!-- Settings Section -->
+            <div class="settings-section">
+                <div class="setting-item">
+                    <label>Model:</label>
+                    <div class="terminal-select">
+                        <select id="modelSelect">
+                            <option value="loading">Loading models...</option>
+                        </select>
+                        <span class="select-arrow">[▼]</span>
+                    </div>
+                </div>
+                <div class="setting-item">
+                    <label for="wordCount">Words:</label>
+                    <div class="word-count-container">
+                        <input type="number" id="wordCount" value="300" min="100" max="2000" spellcheck="false">
+                        <span class="word-count-arrows">
+                            <span class="arrow up">[^]</span>
+                            <span class="arrow down">[v]</span>
+                        </span>
+                    </div>
+                </div>
+                <div class="setting-item">
+                    <label for="refineToggle">Refine:</label>
+                    <div class="custom-checkbox">
+                        <input type="checkbox" id="refineToggle" class="hidden-checkbox">
+                        <span class="checkbox-display">[ ]</span>
+                    </div>
+                </div>
+                <div class="setting-item">
+                    <label for="glossaryMode">Glossary:</label>
+                    <div class="glossary-slider-container">
+                        <div class="slider-track">
+                            <div class="slider-fill"></div>
+                            <div class="slider-thumb"></div>
+                        </div>
+                        <div class="slider-value">off</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Selected Documents Section -->
+            <div class="selected-docs-section">
+                <div class="section-header">Selected Documents</div>
+                <div id="selectedDocs"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Then load the main.js file -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html> 
