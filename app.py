@@ -52,7 +52,7 @@ def create_llm(model_name: str) -> LMStudio:
     return LMStudio(
         base_url=LMSTUDIO_BASE_URL,
         model_name=model_name,
-        timeout=300,
+        timeout=400,
         temperature=0.7,
         top_p=0.9,
         presence_penalty=0.1,
