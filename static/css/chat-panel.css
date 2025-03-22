@@ -1,0 +1,139 @@
+/* Chat Panel */
+.chat-panel {
+    background: rgba(0, 0, 0, 0.3) !important;
+    display: flex;
+    flex-direction: column;
+    border-left: 1px solid rgba(51, 51, 51, 0.3);
+}
+
+.chat-messages {
+    flex-grow: 1;
+    overflow-y: auto;
+    margin-bottom: 1rem;
+    display: flex;
+    flex-direction: column;
+}
+
+.message-group {
+    margin: 1rem 0;
+    padding: 0;
+    border-top: 1px solid rgba(51, 51, 51, 0.5);
+    border-bottom: 1px solid rgba(51, 51, 51, 0.5);
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.message {
+    margin: 0;
+    padding: 0.5rem 1rem;
+    border: none;
+    max-width: 100%;
+    position: relative;
+    background: transparent;
+}
+
+.message-question {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    color: var(--accent-color);
+    font-family: 'Noto Sans Mono', monospace;
+    font-size: var(--font-size);
+    line-height: var(--line-height);
+}
+
+.message-content {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    font-family: 'Noto Sans Mono', monospace;
+    font-size: var(--font-size);
+    line-height: var(--line-height);
+}
+
+.message-metadata {
+    font-size: 0.8em;
+    color: var(--text-muted);
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.message-metadata .timestamp {
+    font-family: monospace;
+}
+
+.message-metadata .citekeys {
+    font-style: italic;
+}
+
+.citekey {
+    margin-left: 0.5rem;
+}
+
+/* Question input styling */
+#questionInput {
+    width: 100%;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    color: var(--text-color);
+    font-family: 'Noto Sans Mono', monospace;
+    font-size: var(--font-size);
+    padding: 0.5rem;
+    margin-top: 1rem;
+}
+
+#questionInput:focus {
+    outline: none;
+    border-color: var(--accent-color);
+}
+
+/* Chat message export button */
+.message-export {
+    position: absolute;
+    right: 10px;
+    top: 10px;
+    padding: 3px 8px;
+    background: transparent;
+    border: 1px solid var(--border-color);
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 0.8em;
+    opacity: 0.7;
+    color: var(--accent-color);
+    font-family: 'Noto Sans Mono', monospace;
+    transition: all 0.2s ease;
+}
+
+.message-export:hover {
+    opacity: 1;
+    background: transparent;
+    border-color: var(--accent-color);
+}
+
+.glossary-create-btn {
+    display: inline-block;
+    width: 100%;
+    padding: 10px;
+    margin: 10px 0;
+    background-color: var(--accent-color);
+    color: var(--bg-color);
+    border: none;
+    font-family: 'Noto Sans Mono', monospace;
+    font-size: 14px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.glossary-create-btn:hover:not(:disabled) {
+    background-color: var(--accent-hover-color);
+}
+
+.glossary-create-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+}
+
+.glossary-create-btn:active {
+    transform: scale(0.98);
+}

@@ -96,29 +96,30 @@ def get_terminal_output() -> List[str]:
     return output
 
 def load_chat_history() -> List[Dict[str, Any]]:
-    """Load chat history from JSON file."""
+    """Load chat history from JSON file using the simplified structure.
+    Each entry has question, answer, citekeys and timestamp fields."""
     try:
         if os.path.exists(CHAT_HISTORY_FILE):
-            with open(CHAT_HISTORY_FILE, 'r', encoding='utf-8') as f:
+            with open(CHAT_HISTORY_FILE, 'r') as f:
                 history = json.load(f)
                 
-                # Ensure each entry has required fields
-                valid_history = []
+                # Remove any HTML content from entries
                 for entry in history:
-                    if all(key in entry for key in ['timestamp', 'question', 'answer', 'citekeys']):
-                        # Clean up HTML content if present
-                        if isinstance(entry['answer'], dict):
-                            # Handle case where answer is a dictionary
-                            entry['answer'] = '\n'.join(f"**{k}**: {v}" for k, v in entry['answer'].items())
-                        else:
-                            entry['answer'] = str(entry['answer'])
-                        
-                        # Remove any HTML tags
+                    # For glossary entries, preserve markdown formatting but remove any HTML
+                    if entry.get('question') == 'Generate glossary' and 'answer' in entry:
+                        # Convert any HTML to markdown and strip other tags
+                        content = entry['answer']
+                        # Remove any HTML tags except for potential <strong> tags
+                        content = re.sub(r'<(?!/?strong)[^>]*>', '', content)
+                        # Convert any remaining <strong> tags to markdown
+                        content = content.replace('<strong>', '**').replace('</strong>', '**')
+                        entry['answer'] = content
+                    elif 'answer' in entry:
+                        # For regular answers, strip all HTML
                         entry['answer'] = re.sub(r'<[^>]*>', '', entry['answer'])
-                        valid_history.append(entry)
                 
                 # Sort by timestamp in reverse order (newest first)
-                return sorted(valid_history, key=lambda x: x['timestamp'], reverse=True)
+                return sorted(history, key=lambda x: x['timestamp'], reverse=True)
         return []
     except Exception as e:
         print(f"Error loading chat history: {str(e)}")
@@ -127,39 +128,33 @@ def load_chat_history() -> List[Dict[str, Any]]:
         return []
 
 def save_chat_history(question: str, answer: str, citekeys: List[str]):
-    """Save a chat entry to the history file."""
+    """Save a chat entry to the history file using a simplified structure.
+    Each entry has only question, answer, citekeys and timestamp fields."""
     try:
-        # Ensure directory exists
-        os.makedirs(os.path.dirname(CHAT_HISTORY_FILE), exist_ok=True)
-        
         # Load existing history
-        try:
-            if os.path.exists(CHAT_HISTORY_FILE):
-                with open(CHAT_HISTORY_FILE, 'r', encoding='utf-8') as f:
-                    history = json.load(f)
-            else:
-                history = []
-        except json.JSONDecodeError:
-            print("Warning: Corrupted chat history file. Starting fresh.")
+        if os.path.exists(CHAT_HISTORY_FILE):
+            with open(CHAT_HISTORY_FILE, 'r') as f:
+                history = json.load(f)
+        else:
             history = []
         
-        # Create a new entry
+        # Create a single entry with all required fields
         entry = {
             'timestamp': datetime.now().isoformat(),
-            'question': str(question),
-            'answer': str(answer),
-            'citekeys': list(citekeys)  # Ensure citekeys is a list
+            'question': question,
+            'answer': answer,
+            'citekeys': citekeys
         }
         
-        # Add the new entry
+        # Add the new entry to history
         history.append(entry)
         
-        # Sort by timestamp (newest first)
+        # Sort by timestamp in reverse order (newest first) before saving
         history = sorted(history, key=lambda x: x['timestamp'], reverse=True)
         
-        # Save to file with proper encoding
-        with open(CHAT_HISTORY_FILE, 'w', encoding='utf-8') as f:
-            json.dump(history, f, indent=2, ensure_ascii=False)
+        # Save to file
+        with open(CHAT_HISTORY_FILE, 'w') as f:
+            json.dump(history, f, indent=2)
             
     except Exception as e:
         print(f"Error saving chat history: {str(e)}")

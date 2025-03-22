@@ -6,29 +6,61 @@ def extract_keywords(query_engine, num_keywords=4, metadata=None):
     if metadata is None:
         raise ValueError("Metadata must be provided.")
     try:
-        prompt = f"""Extract {num_keywords} of the most important and novel statements from the academic piece. 
-        Try to capture all the core ideas, arguments, findings or contrubitons of the document between 1 and 7 words.
-        Do not choose simple and general ones, be specific and technical. use proper terminology.
-        It is a {metadata['item_type']} by authors: {metadata['authors']}. 
-        My humble tags are: {metadata['tags']}. Be much more specific than me!
-        Return a semicolon-separated list of statements."""
+        # More specific prompt for better keyword extraction
+        prompt = f"""As an expert analyzing this academic {metadata['item_type']}, identify exactly {num_keywords} key technical concepts or findings.
+
+        Requirements:
+        1. Extract exactly {num_keywords} distinct technical concepts
+        2. Each concept should be 1-7 words long
+        3. Focus on novel, specific, and technical terminology
+        4. Avoid basic or general concepts
+        5. Consider the authors' ({metadata['authors']}) main contributions
+        6. Look beyond these basic tags: {metadata['tags']}
+
+        Format: Return ONLY a semicolon-separated list of concepts, nothing else.
+        """
+        
         response = query_engine.query(prompt)
         keywords_str = str(response).strip()
-        keywords = [keyword.strip() for keyword in keywords_str.split(';')]
+        # Clean up and validate the response
+        keywords = [k.strip() for k in keywords_str.split(';') if k.strip()]
+        
+        # Ensure we have exactly the requested number of keywords
+        if len(keywords) > num_keywords:
+            keywords = keywords[:num_keywords]
+        elif len(keywords) < num_keywords:
+            # Request more keywords if we didn't get enough
+            remaining = num_keywords - len(keywords)
+            additional_prompt = f"""Provide {remaining} more technical concepts from the document, different from: {'; '.join(keywords)}
+            Format: semicolon-separated list only."""
+            
+            additional_response = query_engine.query(additional_prompt)
+            additional_keywords = [k.strip() for k in str(additional_response).strip().split(';') if k.strip()]
+            keywords.extend(additional_keywords[:remaining])
+        
         return keywords[:num_keywords]
     except Exception as e:
         print(f"Error extracting keywords: {e}")
         return []
 
-def explain_keyword(query_engine, keyword, metadata=None, number_of_words=250): 
+def explain_keyword(query_engine, keyword, metadata=None, number_of_words=250):
     """Explains a given keyword using the document."""
     try:
-        prompt = f"""Reply as an expert in {metadata['tags']}. In {number_of_words} words, explain statement '{keyword}' using the information in the document. 
-        Do not repeat the statement or authors or the name of the document in your explanation. Just explain the statement.
-        Do not simplify. Use proper terminology and be precise."""
+        # More specific prompt for better explanations
+        prompt = f"""As an expert in {metadata['tags']}, explain the concept: '{keyword}'
+
+        Requirements:
+        1. Use exactly {number_of_words} words
+        2. Focus only on explaining '{keyword}' as used in this document
+        3. Use technical, precise language - do not simplify
+        4. Do not mention the concept name, authors, or document title
+        5. Start directly with the explanation
+
+        Format: Provide only the explanation, no introductions or conclusions."""
+        
         response = query_engine.query(prompt)
         explanation = str(response).strip()
-       
+        
         return explanation
     except Exception as e:
         print(f"Error explaining keyword '{keyword}': {e}")

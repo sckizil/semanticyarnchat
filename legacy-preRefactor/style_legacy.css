@@ -725,3 +725,42 @@ strong {
     background: var(--accent-color);
     color: var(--bg-color);
 }
+
+/* Model dropdown styling */
+#modelSelect {
+    width: 100%;
+    padding: 5px;
+    border-radius: 3px;
+    border: 1px solid #ccc;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    font-family: monospace;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+#modelSelect.models-loaded {
+    background-color: rgba(76, 175, 80, 0.2);
+    transition: background-color 0.5s ease;
+}
+
+#modelSelect.loading {
+    animation: loading-pulse 1.5s infinite;
+}
+
+#modelSelect[disabled] {
+    background-color: #f0f0f0;
+    color: #888;
+    cursor: not-allowed;
+}
+
+#modelSelect option[value="loading"] {
+    color: #888;
+    font-style: italic;
+}
+
+@keyframes loading-pulse {
+    0% { opacity: 0.7; }
+    50% { opacity: 1; }
+    100% { opacity: 0.7; }
+}
