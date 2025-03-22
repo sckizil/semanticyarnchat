@@ -126,7 +126,8 @@
 }
 
 .glossary-create-btn:hover:not(:disabled) {
-    background-color: var(--accent-hover-color);
+    background-color: rgb(255, 255, 255);
+    color: var(--accent-color);
 }
 
 .glossary-create-btn:disabled {

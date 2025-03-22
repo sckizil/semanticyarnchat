@@ -5,29 +5,26 @@ from typing import List, Dict, Any
 import os
 import json
 from datetime import datetime
-from AIsummary.AISummary_citekeyQuestion import fetch_document_details
 from llama_index.core import (
     VectorStoreIndex,
     ComposableGraph,
     Settings,
-    StorageContext,
-    load_index_from_storage,
-    Document,
 )
-from llama_index.core.node_parser import SemanticSplitterNodeParser
 from llama_index.embeddings.huggingface_optimum import OptimumEmbedding
 from llama_index.llms.lmstudio import LMStudio
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.callbacks import CallbackManager, LlamaDebugHandler
-import pymupdf4llm
+
+
 import re
-import chromadb
-from llama_index.vector_stores.chroma import ChromaVectorStore
 import time
 from flask_cors import CORS
-from db_utils import VectorDBManager
 import numpy as np
 from pathlib import Path
+
+from glossaryCreation import extract_keywords, explain_keyword, format_glossary
+from fetchDocuments import fetch_document_details
+from db_utils import VectorDBManager, get_or_create_index
 
 
 
@@ -49,8 +46,53 @@ DEFAULT_MODEL = "meta-llama-3.1-8b-instruct"
 
 # Global variable to store available models
 AVAILABLE_MODELS = [DEFAULT_MODEL]
-MODELS_INITIALIZED = False
 
+def initialize_models():
+    """Initialize models by querying LMStudio API."""
+    global AVAILABLE_MODELS
+    
+    retry_count = 0
+    max_retries = 3
+    
+    while retry_count < max_retries:
+        try:
+            response = requests.get(f"{LMSTUDIO_BASE_URL}/models", timeout=5)
+            if response.status_code == 200:
+                models_data = response.json()
+                if 'data' in models_data and isinstance(models_data['data'], list):
+                    models = [model['id'] for model in models_data['data'] if 'id' in model]
+                    if models:
+                        AVAILABLE_MODELS = models
+                        # Ensure default model is always available
+                        if DEFAULT_MODEL not in AVAILABLE_MODELS:
+                            AVAILABLE_MODELS.insert(0, DEFAULT_MODEL)
+                        return True
+            
+            print(f"Failed to fetch models (status: {response.status_code})")
+        except Exception as e:
+            print(f"Error fetching models: {str(e)}")
+        
+        retry_count += 1
+        if retry_count < max_retries:
+            time.sleep(2 * retry_count)
+    
+    print(f"\nWarning: Using default model only: {DEFAULT_MODEL}")
+    AVAILABLE_MODELS = [DEFAULT_MODEL]
+    return False
+
+def initialize_app():
+    """Initialize the application state."""
+    print("\nInitializing application...")
+    initialize_models()
+
+# Initialize OptimumEmbedding
+onnx_model_path = "./bge_onnx"
+if not os.path.exists(onnx_model_path):
+    OptimumEmbedding.create_and_save_optimum_model("BAAI/bge-small-en-v1.5", onnx_model_path)
+Settings.embed_model = OptimumEmbedding(folder_name=onnx_model_path)
+
+# Terminal output buffer
+terminal_output_buffer = []
 
 def create_llm(model_name: str) -> LMStudio:
     """Create an LMStudio instance with the specified model name."""
@@ -63,26 +105,6 @@ def create_llm(model_name: str) -> LMStudio:
         presence_penalty=0.1,
         frequency_penalty=0.1
     )
-
-
-
-def initialize_app():
-    """Initialize the application state."""
-    global MODELS_INITIALIZED
-    if not MODELS_INITIALIZED:
-        print("\nInitializing models...")
-        fetch_models_with_retry()
-        # Migrate chat history if needed
-        MODELS_INITIALIZED = True
-
-# Initialize OptimumEmbedding
-onnx_model_path = "./bge_onnx"
-if not os.path.exists(onnx_model_path):
-    OptimumEmbedding.create_and_save_optimum_model("BAAI/bge-small-en-v1.5", onnx_model_path)
-Settings.embed_model = OptimumEmbedding(folder_name=onnx_model_path)
-
-# Terminal output buffer
-terminal_output_buffer = []
 
 def log_terminal(message: str):
     """Add a message to the terminal output buffer."""
@@ -166,98 +188,7 @@ def save_chat_history(question: str, answer: str, citekeys: List[str]):
         import traceback
         print(traceback.format_exc())
 
-def process_document(file_path: str, file_type: str) -> List[Document]:
-    """Process a document using LlamaMarkdownReader and return LlamaIndex documents."""
-    log_terminal(f"Processing document: {file_path}")
-    
-    try:
-        if file_type == 'pdf':
-            llama_reader = pymupdf4llm.LlamaMarkdownReader()
-            documents = llama_reader.load_data(file_path)
-            log_terminal(f"Successfully loaded document: {file_path}")
-            return documents
-        else:
-            log_terminal(f"Unsupported file type: {file_type}")
-            return []
-    except Exception as e:
-        log_terminal(f"Error processing document: {str(e)}")
-        return []
 
-def create_chunks(documents: List[Document]) -> List[Document]:
-    """Create chunks using SemanticSplitterNodeParser."""
-    log_terminal("Creating text chunks...")
-    
-    try:
-        semantic_chunker = SemanticSplitterNodeParser(
-            buffer_size=1,
-            breakpoint_percentile_threshold=70,
-            embed_model=Settings.embed_model
-        )
-        
-        all_nodes = semantic_chunker.get_nodes_from_documents(documents)
-        chunks = [Document(text=node.get_content()) for node in all_nodes]
-        
-        log_terminal(f"Created {len(chunks)} chunks")
-        return chunks
-    except Exception as e:
-        log_terminal(f"Error creating chunks: {str(e)}")
-        return []
-
-def create_vector_index(documents: List[Document], citekey: str, model_name: str):
-    """Create a vector index from documents."""
-    log_terminal(f"Creating vector index for {citekey}...")
-    
-    try:
-        # Configure LMStudio LLM with original settings
-        llm = create_llm(model_name)
-        # Set up settings
-        Settings.llm = llm
-        
-        # Create Chroma vector store
-        storage_path = os.path.join(STORAGE_DIR, f"{citekey}-index.sqlite3")
-        chroma_client = chromadb.PersistentClient(path=storage_path)
-        chroma_collection = chroma_client.get_or_create_collection("pdf_index")
-        vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-        
-        # Create and store the index
-        storage_context = StorageContext.from_defaults(vector_store=vector_store)
-        index = VectorStoreIndex.from_documents(documents, storage_context=storage_context)
-        
-        log_terminal(f"Successfully created and stored index for {citekey}")
-    except Exception as e:
-        log_terminal(f"Error creating vector index: {str(e)}")
-        raise
-
-def get_or_create_index(citekey: str, file_path: str, file_type: str, model_name: str):
-    """Get an existing index or create a new one."""
-    storage_path = os.path.join(STORAGE_DIR, f"{citekey}-index.sqlite3")
-    
-    try:
-        # Try to load existing index first
-        if os.path.exists(storage_path):
-            chroma_client = chromadb.PersistentClient(path=storage_path)
-            chroma_collection = chroma_client.get_or_create_collection("pdf_index")
-            vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-            storage_context = StorageContext.from_defaults(vector_store=vector_store)
-            index = VectorStoreIndex.from_vector_store(vector_store=vector_store, storage_context=storage_context)
-            return index
-    except Exception as e:
-        log_terminal(f"Error loading existing index: {str(e)}")
-    
-    # If loading fails or index doesn't exist, create new one
-    documents = process_document(file_path, file_type)
-    if not documents:
-        raise ValueError(f"Failed to process document: {file_path}")
-    
-    chunks = create_chunks(documents)
-    create_vector_index(chunks, citekey, model_name)
-    
-    # Load the newly created index
-    chroma_client = chromadb.PersistentClient(path=storage_path)
-    chroma_collection = chroma_client.get_or_create_collection("pdf_index")
-    vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
-    storage_context = StorageContext.from_defaults(vector_store=vector_store)
-    return VectorStoreIndex.from_vector_store(vector_store=vector_store, storage_context=storage_context)
 
 @app.route('/', methods=['GET', 'POST'])
 def index():
@@ -411,7 +342,6 @@ def chat():
                     return jsonify({'error': 'Glossary mode only supports a single document. Please select just one document.'})
                 
                 try:
-                    from AIsummary.AISummary_citekeyGlossary import extract_keywords, explain_keyword, format_glossary
                     print("Successfully imported glossary functions")
                     
                     # Get document details for each citekey
@@ -674,51 +604,15 @@ def chat():
         print("=" * 80)
         return jsonify({'error': f'Global error: {str(e)}'})
 
-def fetch_models_with_retry():
-    global AVAILABLE_MODELS
-    
-    retry_count = 0
-    max_retries = 3
-    
-    while retry_count < max_retries:
-        try:
-            print(f"Attempt {retry_count + 1}/{max_retries}: Fetching models from LMStudio")
-            response = requests.get(f"{LMSTUDIO_BASE_URL}/models", timeout=5)
-            
-            if response.status_code == 200:
-                models_data = response.json()
-                if 'data' in models_data and isinstance(models_data['data'], list):
-                    models = [model['id'] for model in models_data['data'] if 'id' in model]
-                    if models:
-                        AVAILABLE_MODELS = models
-                        print(f"Found {len(AVAILABLE_MODELS)} models")
-                        
-                        # Make sure default model is in the list
-                        if DEFAULT_MODEL not in AVAILABLE_MODELS:
-                            AVAILABLE_MODELS.insert(0, DEFAULT_MODEL)
-                            print(f"Added default model '{DEFAULT_MODEL}'")
-                        
-                        return True
-                    else:
-                        print("No models found in response data")
-                else:
-                    print("Invalid response format from LMStudio API")
-            else:
-                print(f"Failed to fetch models (status: {response.status_code})")
-                
-        except Exception as e:
-            print(f"Error fetching models: {str(e)}")
-        
-        retry_count += 1
-        if retry_count < max_retries:
-            sleep_time = 2 * retry_count
-            print(f"Retrying in {sleep_time} seconds...")
-            time.sleep(sleep_time)
-    
-    print("\nWarning: Could not fetch models after multiple attempts")
-    print(f"Using default model: {DEFAULT_MODEL}")
-    AVAILABLE_MODELS = [DEFAULT_MODEL]
-    return False
+@app.route('/api/models', methods=['GET'])
+def get_models():
+    """Returns the list of available models."""
+    return jsonify({
+        'models': AVAILABLE_MODELS,
+        'default': DEFAULT_MODEL,
+        'success': True,
+        'count': len(AVAILABLE_MODELS)
+    })
 
 # Initialize the database manager with proper path resolution
 app_dir = Path(os.path.dirname(os.path.abspath(__file__)))
@@ -727,31 +621,6 @@ print(f"App directory: {app_dir}")
 db_manager = VectorDBManager(app_dir)
 
 
-
-@app.route('/api/models', methods=['GET'])
-def get_models():
-    """Returns the list of available models."""
-    global AVAILABLE_MODELS
-    
-    # Initialize if not already done
-    initialize_app()
-    
-    # Try to refresh models list if it only contains the default model
-    if len(AVAILABLE_MODELS) <= 1:
-        print("Models list empty or contains only default, attempting refresh...")
-        fetch_models_with_retry()
-    
-    print(f"API: /api/models endpoint called, returning {len(AVAILABLE_MODELS)} models")
-    print("Available models:", AVAILABLE_MODELS)
-    
-    response_data = {
-        'models': AVAILABLE_MODELS,
-        'success': True,
-        'count': len(AVAILABLE_MODELS),
-        'timestamp': datetime.now().isoformat()
-    }
-    
-    return jsonify(response_data)
 
 @app.route('/db_info')
 def db_info():

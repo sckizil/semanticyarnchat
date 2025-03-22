@@ -1,7 +1,111 @@
+import os
+import pymupdf4llm
 import chromadb
 import numpy as np
-import os
+from typing import List
 from pathlib import Path
+
+from llama_index.core import Document, StorageContext, VectorStoreIndex
+from llama_index.core.node_parser import SemanticSplitterNodeParser
+from llama_index.vector_stores.chroma import ChromaVectorStore
+
+def process_document(file_path: str, file_type: str) -> List[Document]:
+    """Process a document using LlamaMarkdownReader and return LlamaIndex documents."""
+    from app import log_terminal  # Import here to avoid circular dependency
+    log_terminal(f"Processing document: {file_path}")
+    
+    try:
+        if file_type == 'pdf':
+            llama_reader = pymupdf4llm.LlamaMarkdownReader()
+            documents = llama_reader.load_data(file_path)
+            log_terminal(f"Successfully loaded document: {file_path}")
+            return documents
+        else:
+            log_terminal(f"Unsupported file type: {file_type}")
+            return []
+    except Exception as e:
+        log_terminal(f"Error processing document: {str(e)}")
+        return []
+
+def create_chunks(documents: List[Document]) -> List[Document]:
+    """Create chunks using SemanticSplitterNodeParser."""
+    from app import Settings, log_terminal  # Import here to avoid circular dependency
+    log_terminal("Creating text chunks...")
+    
+    try:
+        semantic_chunker = SemanticSplitterNodeParser(
+            buffer_size=1,
+            breakpoint_percentile_threshold=70,
+            embed_model=Settings.embed_model
+        )
+        
+        all_nodes = semantic_chunker.get_nodes_from_documents(documents)
+        chunks = [Document(text=node.get_content()) for node in all_nodes]
+        
+        log_terminal(f"Created {len(chunks)} chunks")
+        return chunks
+    except Exception as e:
+        log_terminal(f"Error creating chunks: {str(e)}")
+        return []
+
+def create_vector_index(documents: List[Document], citekey: str, model_name: str):
+    """Create a vector index from documents."""
+    from app import Settings, log_terminal, STORAGE_DIR, create_llm  # Import here to avoid circular dependency
+    log_terminal(f"Creating vector index for {citekey}...")
+    
+    try:
+        # Configure LMStudio LLM with original settings
+        llm = create_llm(model_name)
+        # Set up settings
+        Settings.llm = llm
+        
+        # Create Chroma vector store
+        storage_path = os.path.join(STORAGE_DIR, f"{citekey}-index.sqlite3")
+        chroma_client = chromadb.PersistentClient(path=storage_path)
+        chroma_collection = chroma_client.get_or_create_collection("pdf_index")
+        vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+        
+        # Create and store the index
+        storage_context = StorageContext.from_defaults(vector_store=vector_store)
+        index = VectorStoreIndex.from_documents(documents, storage_context=storage_context)
+        
+        log_terminal(f"Successfully created and stored index for {citekey}")
+    except Exception as e:
+        log_terminal(f"Error creating vector index: {str(e)}")
+        raise
+
+def get_or_create_index(citekey: str, file_path: str, file_type: str, model_name: str):
+    """Get an existing index or create a new one."""
+    from app import log_terminal, STORAGE_DIR  # Import here to avoid circular dependency
+    storage_path = os.path.join(STORAGE_DIR, f"{citekey}-index.sqlite3")
+    
+    try:
+        # Try to load existing index first
+        if os.path.exists(storage_path):
+            chroma_client = chromadb.PersistentClient(path=storage_path)
+            chroma_collection = chroma_client.get_or_create_collection("pdf_index")
+            vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+            storage_context = StorageContext.from_defaults(vector_store=vector_store)
+            index = VectorStoreIndex.from_vector_store(vector_store=vector_store, storage_context=storage_context)
+            return index
+    except Exception as e:
+        log_terminal(f"Error loading existing index: {str(e)}")
+    
+    # If loading fails or index doesn't exist, create new one
+    documents = process_document(file_path, file_type)
+    if not documents:
+        raise ValueError(f"Failed to process document: {file_path}")
+    
+    chunks = create_chunks(documents)
+    create_vector_index(chunks, citekey, model_name)
+    
+    # Load the newly created index
+    chroma_client = chromadb.PersistentClient(path=storage_path)
+    chroma_collection = chroma_client.get_or_create_collection("pdf_index")
+    vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+    storage_context = StorageContext.from_defaults(vector_store=vector_store)
+    return VectorStoreIndex.from_vector_store(vector_store=vector_store, storage_context=storage_context)
+
 
 class VectorDBManager:
     def __init__(self, app_directory):
@@ -115,3 +219,4 @@ class VectorDBManager:
                 stats[db_name] = {'error': str(e)}
 
         return stats
+
