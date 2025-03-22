@@ -1,26 +1,22 @@
-from flask import Flask, render_template, request, jsonify
-import requests
-import bibtexparser
-from typing import List, Dict, Any
+import re
+import time
 import os
 import json
+import requests
+import bibtexparser
+
+from typing import List, Dict, Any
+from flask import Flask, render_template, request, jsonify
+from flask_cors import CORS
+import numpy as np
+from pathlib import Path
 from datetime import datetime
-from llama_index.core import (
-    VectorStoreIndex,
-    ComposableGraph,
-    Settings,
-)
+
+from llama_index.core import VectorStoreIndex, ComposableGraph, Settings
 from llama_index.embeddings.huggingface_optimum import OptimumEmbedding
 from llama_index.llms.lmstudio import LMStudio
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core.callbacks import CallbackManager, LlamaDebugHandler
-
-
-import re
-import time
-from flask_cors import CORS
-import numpy as np
-from pathlib import Path
 
 from glossaryCreation import extract_keywords, explain_keyword, format_glossary
 from fetchDocuments import fetch_document_details
