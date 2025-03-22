@@ -10,6 +10,7 @@
     --line-height: 1.5;
 }
 
+/* Reset base styles */
 * {
     margin: 0;
     padding: 0;
@@ -17,29 +18,54 @@
 }
 
 body {
-    font-family: 'Noto Sans Mono', monospace;
-    line-height: var(--line-height);
-    color: var(--text-color);
-    background-color: var(--bg-color);
-    height: 100vh;
+    margin: 0;
+    padding: 0;
     overflow: hidden;
+    font-family: 'Noto Sans Mono', monospace;
+    background: #000000;
+    color: var(--text-color);
 }
 
-.container-fluid {
-    display: grid;
-    grid-template-columns: 2fr 3fr 2fr;
+/* Make visualization cover entire viewport */
+#visualization {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
     height: 100vh;
-    gap: 1px;
-    background-color: var(--border-color);
+    z-index: 0;
+    background: #000000;
 }
 
+/* Center the canvas */
+#canvas {
+    width: 100% !important;
+    height: 100% !important;
+    display: block;
+}
+
+/* Container layout */
+.container-fluid {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    display: grid;
+    grid-template-columns: 2fr 6fr 2fr;
+    gap: 0;
+    z-index: 1;
+    pointer-events: none;
+}
+
+/* Panel styling */
 .panel {
-    background-color: var(--bg-color);
+    background: transparent !important;
+    backdrop-filter: none !important;
     padding: 1rem;
     overflow-y: auto;
     height: 100vh;
-    display: flex;
-    flex-direction: column;
+    pointer-events: auto;
 }
 
 .panel::-webkit-scrollbar {
@@ -59,9 +85,20 @@ body {
     background: var(--accent-color);
 }
 
+/* Remove semanticyarn panel background */
+.panel.semanticyarn {
+    background: transparent !important;
+    backdrop-filter: none !important;
+    pointer-events: none;
+    padding: 0;
+}
+
 /* Document Panel */
 .document-panel {
-    border-right: 1px solid var(--border-color);
+    background: rgba(0, 0, 0, 0.3) !important;
+    border-right: 1px solid rgba(51, 51, 51, 0.3);
+    display: flex;
+    flex-direction: column;
 }
 
 #searchInput {
@@ -79,56 +116,12 @@ body {
     outline: none;
 }
 
-.document-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    overflow-y: auto;
-    flex-grow: 1;
-}
-
-.document-item {
-    padding: 8px;
-    border-bottom: 1px solid var(--border-color);
-    display: flex;
-    align-items: flex-start;
-    cursor: pointer;
-}
-
-.document-item:hover {
-    background-color: var(--hover-color);
-}
-
-.doc-checkbox {
-    display: none;
-}
-
-.doc-title {
-    font-size: 0.9em;
-    margin-bottom: 4px;
-    color: var(--text-color);
-}
-
-.doc-title:before {
-    content: '[ ]';
-    color: var(--text-color);
-    margin-right: 4px;
-}
-
-.doc-checkbox:checked + label .doc-title:before {
-    content: '[X]';
-    color: var(--accent-color);
-}
-
-.doc-meta {
-    font-size: 0.8em;
-    color: var(--text-muted);
-}
-
 /* Chat Panel */
 .chat-panel {
+    background: rgba(0, 0, 0, 0.3) !important;
     display: flex;
     flex-direction: column;
+    border-left: 1px solid rgba(51, 51, 51, 0.3);
 }
 
 .chat-messages {
@@ -142,9 +135,9 @@ body {
 .message-group {
     margin: 1rem 0;
     padding: 0;
-    border-top: 1px solid var(--border-color);
-    border-bottom: 1px solid var(--border-color);
-    background: transparent;
+    border-top: 1px solid rgba(51, 51, 51, 0.5);
+    border-bottom: 1px solid rgba(51, 51, 51, 0.5);
+    background: rgba(0, 0, 0, 0.2);
 }
 
 .message {
@@ -201,7 +194,7 @@ body {
     width: 100%;
     background: transparent;
     border: 1px solid var(--border-color);
-    color: var(--text-color);
+    color: var (--text-color);
     font-family: 'Noto Sans Mono', monospace;
     font-size: var(--font-size);
     padding: 0.5rem;
@@ -288,37 +281,57 @@ body {
 
 .setting-item {
     display: flex;
+    justify-content: space-between;
     align-items: center;
-    margin-bottom: 0.5rem;
+    margin-bottom: 10px;
+    width: 100%;
 }
 
 .setting-item label {
-    width: 100px;
-    font-size: 0.9rem;
-    font-family: 'Noto Sans Mono', monospace;
+    flex: 0 0 40%;
+    text-align: left;
+    padding-right: 10px;
 }
 
-.setting-item input {
+.setting-item input[type="text"],
+.setting-item input[type="number"] {
+    width: 60px;
+    padding: 2px 4px;
+    margin-left: 5px;
     background: transparent;
     border: 1px solid var(--border-color);
     color: var(--text-color);
-    padding: 0.25rem;
     font-family: 'Noto Sans Mono', monospace;
+    font-size: 12px;
 }
 
-.setting-item input:focus {
-    outline: none;
-    border-color: var(--text-color);
+.setting-item .terminal-select,
+.setting-item .word-count-container,
+.setting-item .custom-checkbox,
+.setting-item .glossary-slider-container {
+    flex: 1;
+}
+
+.setting-item .input-group {
+    flex: 1;
+    display: flex;
+    justify-content: flex-end;
+    gap: 5px;
+    width: 50px;
 }
 
 /* Selected Documents Section */
 .selected-docs-section {
     padding: 1rem;
-    background-color: transparent;
+    background: rgba(0, 0, 0, 0.2) !important;
     border-radius: 4px;
     overflow-y: auto;
     flex-grow: 0;
     min-height: 100px;
+    border-top: 1px solid rgba(51, 51, 51, 0.5);
+    margin-top: auto;
+    max-height: 40vh;
+    flex-shrink: 0;
 }
 
 .section-header {
@@ -332,13 +345,13 @@ body {
 
 .doc-count {
     font-size: 0.8em;
-    color: var(--text-color);
+    color: var (--text-color);
     opacity: 0.7;
 }
 
 .selected-doc {
     padding: 0.5rem;
-    background-color: var(--bg-color);
+    background-color: transparent;
     border: 1px solid var(--border-color);
     border-radius: 4px;
     margin-bottom: 0.5rem;
@@ -346,7 +359,7 @@ body {
 }
 
 .selected-doc .doc-title {
-    font-size: 0.9em;
+    font-size: 0.8em;
     margin-bottom: 4px;
     color: var(--text-color);
 }
@@ -362,7 +375,7 @@ body {
     background: transparent;
     border: none;
     color: var(--text-color);
-    font-size: 1.2em;
+    font-size: 0.8em;
     cursor: pointer;
     padding: 0 0.5rem;
     line-height: 1;
@@ -395,11 +408,13 @@ input:disabled {
     cursor: not-allowed;
 }
 
+/* Vector database indicator styling */
 .vector-db-indicator {
-    color: #ff0000;
-    margin-left: 4px;
+    color: #e74c3c;
+    font-weight: bold;
+    margin-left: 5px;
+    font-size: 0.9em;
 }
-
 /* Chat message export button */
 .message-export {
     position: absolute;
@@ -443,7 +458,7 @@ input:disabled {
 
 /* Apply to all panels */
 .panel {
-    background-color: var(--bg-color);
+    background-color: transparent;
     padding: 1rem;
     overflow-y: auto;
     height: 100vh;
@@ -451,12 +466,6 @@ input:disabled {
     flex-direction: column;
 }
 
-/* Chat messages scrollbar */
-.chat-messages {
-    flex-grow: 1;
-    overflow-y: auto;
-    margin-bottom: 1rem;
-}
 
 /* Terminal scrollbar */
 .terminal-content {
@@ -478,16 +487,19 @@ input:disabled {
     gap: 0.5rem;
     overflow-y: auto;
     flex-grow: 1;
+    background: transparent !important;
+    flex: 1;
+    margin-bottom: 1rem;
 }
 
 /* Selected documents scrollbar */
 .selected-docs-section {
     padding: 1rem;
-    background-color: transparent;
+    background-color: transparent !important;
     border-radius: 4px;
     overflow-y: auto;
     flex-grow: 1;
-    min-height: 100px;
+    min-height: 80px;
 }
 
 /* Word count styling */
@@ -584,4 +596,132 @@ input:disabled {
 /* Ensure strong tags are visible but minimal */
 strong {
     font-weight: bold;
-} 
+}
+
+/* Update settings popup for better visibility */
+.settings-popup {
+    display: none;
+    position: fixed;
+    top: 60px;
+    right: 20px;
+    width: 400px; /* Increased from default */
+    background: rgba(0, 0, 0, 0.95);
+    border: 1px solid var(--accent-color);
+    padding: 20px;
+    z-index: 1003;
+    color: var(--text-color);
+    max-height: calc(100vh - 80px);
+    overflow-y: auto;
+}
+
+.settings-popup.active {
+    display: block;
+}
+
+.settings-popup-header {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 15px;
+}
+
+.settings-close-button {
+    cursor: pointer;
+    color: var(--text-color);
+}
+
+/* Settings button */
+.settings-button {
+    position: fixed;
+    top: 20px;
+    right: 20px;
+    z-index: 1002;
+    cursor: pointer;
+    color: var(--text-color);
+    background: transparent;
+    border: none;
+    font-family: 'Noto Sans Mono', monospace;
+    font-size: 16px;
+    padding: 5px 10px;
+    pointer-events: auto;
+}
+
+.settings-button:hover {
+    color: var(--accent-color);
+}
+
+/* Ensure overlay is above visualization but below panels */
+.overlay {
+    z-index: 1;
+    background: rgba(0, 0, 0, 0.8);
+    border: 1px solid var(--accent-color);
+    position: fixed;
+    top: 50%;
+    left: 50%; /* Adjust to center in visualization area */
+    transform: translate(-50%, -50%);
+    padding: 20px;
+    color: var(--text-color);
+    pointer-events: none;
+    font-family: 'Noto Sans Mono', monospace;
+}
+
+/* Terminal-style checkbox */
+.doc-checkbox {
+    display: none;
+}
+
+.doc-checkbox + label {
+    cursor: pointer;
+    display: flex;
+    align-items: flex-start;
+    padding: 0.5rem;
+}
+
+.doc-checkbox + label::before {
+    content: "[]";
+    font-family: 'Noto Sans Mono', monospace;
+    margin-right: 8px;
+    color: var(--text-color);
+}
+
+.doc-checkbox:checked + label::before {
+    content: "[X]";
+    color: var(--accent-color);
+}
+
+/* Document item styling */
+.document-item {
+    border-bottom: 1px solid var(--border-color);
+    background: transparent;
+}
+
+.document-item:hover {
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.doc-title {
+    font-size: var(--font-size);
+    margin-bottom: 0.2rem;
+}
+
+.doc-meta {
+    font-size: calc(var(--font-size) * 0.9);
+    opacity: 0.8;
+}
+
+/* Update save button alignment */
+.save-button {
+    width: 100%;
+    margin-top: 20px;
+    text-align: center;
+    padding: 10px;
+    background: transparent;
+    border: 1px solid var(--accent-color);
+    color: var(--text-color);
+    font-family: 'Noto Sans Mono', monospace;
+    cursor: pointer;
+}
+
+.save-button:hover {
+    background: var(--accent-color);
+    color: var(--bg-color);
+}

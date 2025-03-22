@@ -3,7 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Zotero Chat</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+    <script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <title>Semantic Yarn - Vector Space Chat</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <style>
         /* Model dropdown styling */
@@ -43,28 +46,6 @@
             0% { opacity: 0.7; }
             50% { opacity: 1; }
             100% { opacity: 0.7; }
-        }
-        
-        /* Vector database indicator styling */
-        .vector-db-indicator {
-            color: #e74c3c;
-            font-weight: bold;
-            margin-left: 5px;
-            font-size: 0.9em;
-        }
-
-        .chat-messages {
-            flex-grow: 1;
-            overflow-y: auto;
-            margin-bottom: 1rem;
-            display: flex;
-            flex-direction: column-reverse;  /* This will make new messages appear at the top */
-        }
-
-        .message {
-            margin: 1rem 0;
-            border-radius: 8px;
-            order: 0;  /* Ensure messages maintain their order */
         }
     </style>
     
@@ -162,10 +143,17 @@
             // Do nothing - we've already fetched models
             return;
         };
+
     });
     </script>
 </head>
 <body>
+    <!-- Visualization layer (bottom) -->
+    <div id="visualization">
+        <canvas id="canvas"></canvas>
+    </div>
+
+    <!-- UI layer (top) -->
     <div class="container-fluid">
         <!-- Document Selection Panel -->
         <div class="panel document-panel">
@@ -175,14 +163,26 @@
                 <div class="document-item">
                     <input type="checkbox" id="doc-{{ doc.citekey }}" class="doc-checkbox">
                     <label for="doc-{{ doc.citekey }}">
-                        <div class="doc-title">{{ doc.title }}</div>
-                        <div class="doc-meta">
-                            {{ doc.authors }} ({{ doc.year }}{% if doc.has_vector_db %}<span class="vector-db-indicator">D</span>{% endif %})
+                        <div class="doc-content">
+                            <div class="doc-title">{{ doc.title }}</div>
+                            <div class="doc-meta">
+                                {{ doc.authors }} ({{ doc.year }}{% if doc.has_vector_db %}<span class="vector-db-indicator">D</span>{% endif %})
+                            </div>
                         </div>
                     </label>
                 </div>
                 {% endfor %}
             </div>
+            <!-- Selected Documents Section -->
+            <div class="selected-docs-section">
+                <div class="section-header">Selected Documents</div>
+                <div id="selectedDocs"></div>
+            </div>
+        </div>
+
+        <!-- Middle part for Three.js module -->
+        <div class="panel semanticyarn">
+            <div id="overlay" class="overlay">Loading visualization...</div>
         </div>
 
         <!-- Chat Panel -->
@@ -213,64 +213,1260 @@
                 <input type="text" id="questionInput" placeholder="> ask a question..." spellcheck="false">
             </form>
         </div>
+    </div>
 
-        <!-- Terminal Panel -->
-        <div class="panel terminal-panel">
-            <div class="terminal-content" id="terminalContent">
-                $ python app.py
-                * Running on http://127.0.0.1:5001
-                * Debug mode: on
-            </div>
-            
-            <!-- Settings Section -->
-            <div class="settings-section">
-                <div class="setting-item">
-                    <label>Model:</label>
-                    <div class="terminal-select">
-                        <select id="modelSelect">
-                            <option value="loading">Loading models...</option>
-                        </select>
-                        <span class="select-arrow">[▼]</span>
-                    </div>
-                </div>
-                <div class="setting-item">
-                    <label for="wordCount">Words:</label>
-                    <div class="word-count-container">
-                        <input type="number" id="wordCount" value="300" min="100" max="2000" spellcheck="false">
-                        <span class="word-count-arrows">
-                            <span class="arrow up">[^]</span>
-                            <span class="arrow down">[v]</span>
-                        </span>
-                    </div>
-                </div>
-                <div class="setting-item">
-                    <label for="refineToggle">Refine:</label>
-                    <div class="custom-checkbox">
-                        <input type="checkbox" id="refineToggle" class="hidden-checkbox">
-                        <span class="checkbox-display">[ ]</span>
-                    </div>
-                </div>
-                <div class="setting-item">
-                    <label for="glossaryMode">Glossary:</label>
-                    <div class="glossary-slider-container">
-                        <div class="slider-track">
-                            <div class="slider-fill"></div>
-                            <div class="slider-thumb"></div>
-                        </div>
-                        <div class="slider-value">off</div>
-                    </div>
-                </div>
-            </div>
+    <!-- Settings Button -->
+    <button class="settings-button">[*]</button>
 
-            <!-- Selected Documents Section -->
-            <div class="selected-docs-section">
-                <div class="section-header">Selected Documents</div>
-                <div id="selectedDocs"></div>
+    <!-- Settings Pop-up -->
+    <div class="settings-popup">
+        <div class="setting-item">
+            <label>Model:</label>
+            <div class="terminal-select">
+                <select id="modelSelect">
+                    <option value="loading">Loading models...</option>
+                </select>
+                <span class="select-arrow">[▼]</span>
             </div>
+        </div>
+        <div class="setting-item">
+            <label for="wordCount">Words:</label>
+            <div class="word-count-container">
+                <input type="number" id="wordCount" value="300" min="100" max="2000" spellcheck="false">
+                <span class="word-count-arrows">
+                    <span class="arrow up">[^]</span>
+                    <span class="arrow down">[v]</span>
+                </span>
+            </div>
+        </div>
+        <div class="setting-item">
+            <label for="refineToggle">Refine:</label>
+            <div class="custom-checkbox">
+                <input type="checkbox" id="refineToggle" class="hidden-checkbox">
+                <span class="checkbox-display">[ ]</span>
+            </div>
+        </div>
+        <div class="setting-item">
+            <label for="glossaryMode">Glossary:</label>
+            <div class="glossary-slider-container">
+                <div class="slider-track">
+                    <div class="slider-fill"></div>
+                    <div class="slider-thumb"></div>
+                </div>
+                <div class="slider-value">off</div>
+            </div>
+        </div>
+        <div class="setting-item">
+            <label>Number of chunks:</label>
+            <span id="chunkCount">0</span>
+        </div>
+        <div class="setting-item">
+            <label>Color By:</label>
+            <div class="terminal-select">
+                <select id="colorMode">
+                    <option value="rgb">RGB</option>
+                    <option value="database">Database</option>
+                    <option value="dimension">Dimension</option>
+                </select>
+                <span class="select-arrow">[▼]</span>
+            </div>
+        </div>
+        <div class="setting-item">
+            <label>Scale Range:</label>
+            <div class="input-group"> 
+                <input type="text" id="scaleMin" value="0.3" placeholder="min">
+                <input type="text" id="scaleMax" value="10" placeholder="max">
+            </div>
+        </div>
+        <div class="setting-item">
+            <label>Curve Height:</label>
+            <div class="input-group">
+                <input type="text" id="curveMin" value="-0.001" placeholder="min">
+                <input type="text" id="curveMax" value="0.001" placeholder="max">
+            </div>
+        </div>
+        <div class="setting-item">
+            <label>Point Speed:</label>
+            <div class="input-group">
+                <input type="text" id="speedMin" value="-0.02" placeholder="min (CCW)">
+                <input type="text" id="speedMax" value="0.02" placeholder="max (CW)">
+            </div>
+        </div>
+        <div class="setting-item">
+            <label>Point Size:</label>
+            <div class="input-group">
+                <input type="text" id="sizeMin" value="0.05" placeholder="min">
+                <input type="text" id="sizeMax" value="0.5" placeholder="max">
+            </div>
+        </div>
+        <div class="setting-item">
+            <label>Undulations:</label>
+            <div class="input-group">
+                <input type="text" id="undulationsMin" value="2" placeholder="min">
+                <input type="text" id="undulationsMax" value="10" placeholder="max">
+            </div>
+        </div>
+        <div class="setting-item">
+            <label>Wave Amplitude:</label>
+            <div class="input-group">
+                <input type="text" id="amplitudeMin" value="0.01" placeholder="min">
+                <input type="text" id="amplitudeMax" value="0.05" placeholder="max">
+            </div>
+        </div>
+        <div class="setting-item">
+            <label>Wave Phase:</label>
+            <div class="input-group">
+                <input type="text" id="phaseMin" value="0" placeholder="min">
+                <input type="text" id="phaseMax" value="6.28" placeholder="max (2π)">
+            </div>
+        </div>
+        <div class="setting-item">
+            <label>Scatter Frequency:</label>
+            <div class="input-group">
+                <input type="text" id="scatterFreqMin" value="0.1" placeholder="min (Hz)">
+                <input type="text" id="scatterFreqMax" value="1.0" placeholder="max (Hz)">
+            </div>
+        </div>
+        <div class="setting-item">
+            <label>Scatter Length:</label>
+            <div class="input-group">
+                <input type="text" id="scatterLengthMin" value="0.5" placeholder="min">
+                <input type="text" id="scatterLengthMax" value="5.0" placeholder="max">
+            </div>
+        </div>
+        <div class="setting-item">
+            <label>Scatter Global:</label>
+            <div class="input-group">
+                <input type="text" id="scatterVelocity" value="5" placeholder="velocity">
+                <input type="text" id="scatterLife" value="2.0" placeholder="life (s)">
+            </div>
+        </div>
+        <div class="setting-item">
+            <button id="saveSettings" class="save-button">Save Settings as Default</button>
+        </div>
+        <div class="setting-item">
+            <button id="zoomExtents" class="save-button">Zoom Extents</button>
         </div>
     </div>
 
     <!-- Then load the main.js file -->
-    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script 
+        src="{{ url_for('static', filename='js/main.js') }}">
+    </script>
+    <script>
+        /* =============== DIMENSION MAPPING DOCUMENTATION ==================
+         * This visualization uses the following dimensions mapping:
+         * 
+         * Dimension 0: X-axis rotation - Controls the tilt of rings along X axis (-1 to +1)
+         * Dimension 1: Z-axis rotation - Controls the tilt of rings along Z axis (-1 to +1) 
+         * Dimension 2: Scale factor - Controls the overall size of each ring (mapped to scaleMin-scaleMax)
+         * Dimension 3: Velocity - Controls the animation speed and direction (mapped to speedMin-speedMax)
+         * Dimension 4: Point size - Controls the size of moving points (mapped to sizeMin-sizeMax)
+         * Dimension 5: Color - Used for RGB coloring in "rgb" color mode (maps -1 to +1 to color spectrum)
+         * Dimension 6: Undulations - Controls the number of waves in each ring (-1 to +1 -> few to many)
+         * Dimension 7: Amplitude - Controls the height of undulation waves (-1 to +1 -> small to large)
+         * Dimension 8: Phase - Controls the phase shift of undulation waves (-1 to +1 -> 0 to 2π)
+         * Dimension 9: Scatter Frequency - Controls frequency of scattering lines (-1: once per 10s, +1: once per 1s)
+         * Dimension 10: Scatter Length - Controls length of scattering lines (-1: away from origin, +1: towards origin)
+         * Dimension 11: Scatter Color - Controls color of scattering lines (-1 to +1 maps to color spectrum)
+         * Dimensions 12+: Amplitude variation - Affects the vertical displacement of ring points
+         *
+         * To add a new dimension effect:
+         * 1. Update the backend (app.py) to include the new dimension in the request and response
+         * 2. Add the dimension to the form data in updateVisualization()
+         * 3. Add the dimension to the 'dimensions' array in createSemanticYarn()
+         * 4. Apply the dimension's effect in the ring generation or other relevant code
+         * 5. Update this documentation to reflect the new dimension's purpose
+         * 6. Add a setting to the UI to control the new dimension
+         */
+
+        let scene, camera, renderer, controls;
+        let points = [];
+        let scatterLines = []; // Array to track all scatter lines
+        let currentData = null;
+        let animationFrameId = null;
+        let lastFrameTime = 0; // For time-based animations
+        let firstVisualization = true; // Flag to track if this is the first visualization
+
+        console.log('Initializing Three.js scene');
+        
+        // Initialize Three.js scene
+        function initThreeJS() {
+            try {
+                // Wait for THREE to be available
+                if (typeof THREE === 'undefined') {
+                    console.error('THREE is not loaded');
+                    return;
+                }
+
+                // Verify OrbitControls is available
+                if (typeof THREE.OrbitControls === 'undefined') {
+                    console.error('OrbitControls is not loaded'); 
+                    return;
+                }
+
+                console.log('Three.js and OrbitControls loaded, setting up scene');
+                scene = new THREE.Scene();
+                scene.background = new THREE.Color(0x000000);
+
+                const canvas = document.getElementById('canvas');
+                const container = document.querySelector('#visualization');
+                
+                // Make canvas resolution match display resolution
+                const pixelRatio = window.devicePixelRatio || 1;
+                canvas.width = container.clientWidth * pixelRatio;
+                canvas.height = container.clientHeight * pixelRatio;
+                canvas.style.width = `${container.clientWidth}px`;
+                canvas.style.height = `${container.clientHeight}px`;
+
+                camera = new THREE.PerspectiveCamera(60, canvas.width / canvas.height, 0.1, 1000);
+                // Position camera to look at origin from a 45-degree angle
+                const initialDistance = 15; // Increased distance
+                camera.position.set(initialDistance, initialDistance, initialDistance);
+                camera.up.set(0, 1, 0); // Ensure up vector is aligned with Y axis
+                camera.lookAt(0, 0, 0);
+
+                renderer = new THREE.WebGLRenderer({
+                    canvas: canvas,
+                    antialias: true,
+                    alpha: true
+                });
+                renderer.setSize(canvas.width, canvas.height, false);
+                renderer.setPixelRatio(pixelRatio);
+
+                controls = new THREE.OrbitControls(camera, renderer.domElement);
+                controls.enableDamping = true;
+                controls.dampingFactor = 0.05;
+                controls.screenSpacePanning = true;
+                controls.target.set(0, 0, 0);
+                controls.minDistance = 2;
+                controls.maxDistance = 50;
+                controls.update();
+
+                const ambientLight = new THREE.AmbientLight(0xffffff, 1.0);
+                scene.add(ambientLight);
+
+                console.log('Scene setup complete, starting animation');
+                animate();
+                handleResize();
+
+                // Add event listeners
+                window.addEventListener('resize', () => handleResize());
+                document.getElementById('colorMode').addEventListener('change', () => {
+                    if (currentData) updatePointCloud(currentData.points, currentData.metadata);
+                });
+                document.getElementById('zoomExtents').addEventListener('click', zoomExtents);
+                ['scaleMin', 'scaleMax', 'curveMin', 'curveMax', 'speedMin', 'speedMax', 'sizeMin', 'sizeMax', 
+                 'undulationsMin', 'undulationsMax', 'amplitudeMin', 'amplitudeMax', 'phaseMin', 'phaseMax',
+                 'scatterFreqMin', 'scatterFreqMax', 'scatterLengthMin', 'scatterLengthMax', 
+                 'scatterVelocity', 'scatterLife'].forEach(id => {
+                    document.getElementById(id).addEventListener('input', () => {
+                        if (currentData) updatePointCloud(currentData.points, currentData.metadata);
+                    });
+                });
+
+                // Trigger initial visualization immediately
+                console.log('Triggering initial visualization');
+                updateVisualization();
+            } catch (error) {
+                console.error('Error initializing Three.js:', error);
+                showOverlay('Error initializing 3D visualization', 'error');
+            }
+        }
+
+        function animate() {
+            const currentTime = performance.now() / 1000; // Current time in seconds
+            const deltaTime = lastFrameTime === 0 ? 0 : currentTime - lastFrameTime;
+            lastFrameTime = currentTime;
+            
+            requestAnimationFrame(animate);
+            
+            // Update point positions with error handling
+            if (points.length > 0) {
+                points[0].children.forEach(child => {
+                    // Only process mesh objects with animation data
+                    if (child instanceof THREE.Mesh && 
+                        child.userData && 
+                        child.userData.curve && 
+                        typeof child.userData.curve.getPointAt === 'function') {
+                        try {
+                            // Ensure progress is valid
+                            if (typeof child.userData.progress !== 'number') {
+                                child.userData.progress = 0;
+                            }
+                            
+                            // Get velocity - ensure it's a number
+                            let velocity = child.userData.velocity;
+                            if (typeof velocity !== 'number') {
+                                velocity = 0;
+                                child.userData.velocity = 0;
+                            }
+                            
+                            // Update progress based on velocity
+                            let progress = child.userData.progress + velocity;
+                            
+                            // Handle wrapping correctly for both directions
+                            if (progress > 1) {
+                                progress = progress - Math.floor(progress);
+                            } else if (progress < 0) {
+                                progress = 1 + (progress % 1);
+                            }
+                            
+                            // Ensure progress is between 0 and 1
+                            progress = Math.max(0, Math.min(1, progress));
+                            
+                            // Update stored progress
+                            child.userData.progress = progress;
+                            
+                            // Get new position from curve
+                            try {
+                                const position = child.userData.curve.getPointAt(progress);
+                                if (position && position.isVector3) {
+                                    child.position.copy(position);
+                                }
+                                
+                                // Handle scatter effect
+                                if (child.userData.scatterFrequency !== undefined) {
+                                    // First time initialization
+                                    if (child.userData.nextScatterTime === 0) {
+                                        child.userData.nextScatterTime = currentTime + getScatterInterval(child.userData.scatterFrequency);
+                                    }
+                                    
+                                    // Check if it's time to create a new scatter line
+                                    if (currentTime >= child.userData.nextScatterTime) {
+                                        createScatterLine(child);
+                                        // Schedule next scatter
+                                        child.userData.nextScatterTime = currentTime + getScatterInterval(child.userData.scatterFrequency);
+                                    }
+                                }
+                            } catch (e) {
+                                console.warn(`Error getting point at progress ${progress}:`, e);
+                            }
+                        } catch (error) {
+                            console.warn('Animation error:', error);
+                        }
+                    }
+                });
+            }
+            
+            // Update scatter lines
+            updateScatterLines(deltaTime);
+            
+            if (controls) controls.update();
+            if (renderer && scene && camera) {
+                renderer.render(scene, camera);
+            }
+        }
+
+        function handleResize() {
+            if (!renderer || !camera) return;
+            
+            const canvas = document.getElementById('canvas');
+            const container = document.querySelector('#visualization');
+            const pixelRatio = window.devicePixelRatio || 1;
+            const width = container.clientWidth * pixelRatio;
+            const height = container.clientHeight * pixelRatio;
+            
+            canvas.width = width;
+            canvas.height = height;
+            canvas.style.width = `${container.clientWidth}px`;
+            canvas.style.height = `${container.clientHeight}px`;
+            
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+            renderer.setSize(width, height, false);
+            renderer.setPixelRatio(pixelRatio);
+        }
+
+        function updateColors(pointsData, metadata) {
+            const colorMode = document.getElementById('colorMode').value;
+            const colors = new Float32Array(pointsData.length * 3);
+            
+            if (colorMode === 'database') {
+                const uniqueDbs = [...new Set(metadata.map(m => m.database))];
+                metadata.forEach((meta, i) => {
+                    const t = uniqueDbs.indexOf(meta.database) / Math.max(1, uniqueDbs.length - 1);
+                    const color = new THREE.Color().setHSL(t, 0.7, 0.5);
+                    colors[i * 3] = color.r;
+                    colors[i * 3 + 1] = color.g;
+                    colors[i * 3 + 2] = color.b;
+                });
+            } else if (colorMode === 'dimension') {
+                const values = pointsData.map(p => p[0]);
+                const min = Math.min(...values);
+                const max = Math.max(...values);
+                pointsData.forEach((point, i) => {
+                    const t = (point[0] - min) / (max - min);
+                    const color = new THREE.Color().setHSL(0.7 - 0.7 * t, 0.85, 0.5);
+                    colors[i * 3] = color.r;
+                    colors[i * 3 + 1] = color.g;
+                    colors[i * 3 + 2] = color.b;
+                });
+            } else if (colorMode === 'rgb') {
+                // Use dimension 5 for RGB color mapping
+                pointsData.forEach((point, i) => {
+                    // Normalize dimension 5 value which is already between -1 and 1
+                    const colorValue = point[5] || 0;
+                    
+                    // Map -1 to +1 to RGB values
+                    let r, g, b;
+                    
+                    if (colorValue < -0.33) {
+                        // -1.0 to -0.33: Blue to Cyan
+                        const t = (colorValue + 1) / 0.67;  // 0 to 1
+                        r = 0;
+                        g = t;
+                        b = 1;
+                    } else if (colorValue < 0.33) {
+                        // -0.33 to 0.33: Cyan to Yellow
+                        const t = (colorValue + 0.33) / 0.66;  // 0 to 1
+                        r = t;
+                        g = 1;
+                        b = 1 - t;
+                    } else {
+                        // 0.33 to 1.0: Yellow to Red
+                        const t = (colorValue - 0.33) / 0.67;  // 0 to 1
+                        r = 1;
+                        g = 1 - t;
+                        b = 0;
+                    }
+                    
+                    colors[i * 3] = r;
+                    colors[i * 3 + 1] = g;
+                    colors[i * 3 + 2] = b;
+                });
+            }
+            
+            return colors;
+        }
+
+        function createSemanticYarn(pointsData, colors, metadata) {
+            const group = new THREE.Group();
+            const baseRadius = 2;
+            const numPoints = 100;
+            
+            // Get range settings with safer defaults
+            const scaleMin = parseFloat(document.getElementById('scaleMin').value) || 0.6;
+            const scaleMax = parseFloat(document.getElementById('scaleMax').value) || 1.5;
+            const curveMin = parseFloat(document.getElementById('curveMin').value) || -1.0;
+            const curveMax = parseFloat(document.getElementById('curveMax').value) || 1.0;
+            const speedMin = parseFloat(document.getElementById('speedMin').value) || -0.02;
+            const speedMax = parseFloat(document.getElementById('speedMax').value) || 0.02;
+            const sizeMin = parseFloat(document.getElementById('sizeMin').value) || 0.1;
+            const sizeMax = parseFloat(document.getElementById('sizeMax').value) || 0.3;
+
+            // Find min/max values for normalization
+            const dimensions = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]; // Include dimensions for all effects
+            const ranges = dimensions.map(dim => {
+                const values = pointsData.map(p => p[dim] || 0); // Use 0 for missing dimensions
+                const min = Math.min(...values);
+                const max = Math.max(...values);
+                return {
+                    min: min === max ? min - 1 : min, // Prevent division by zero in normalization
+                    max: min === max ? max + 1 : max
+                };
+            });
+            
+            pointsData.forEach((point, i) => {
+                try {
+                    // Log raw value for velocity dimension
+                    console.log(`Point ${i}: raw velocity dimension value=${point[3]}`);
+                    
+                    // Normalize dimensions, using 0 for missing ones
+                    const normalizedPoint = dimensions.map(dim => {
+                        const val = point[dim] || 0;
+                        const range = ranges[dim];
+                        return -1 + 2 * (val - range.min) / (range.max - range.min);
+                    });
+
+                    const rotationX = (normalizedPoint[0] * Math.PI) / 2;
+                    const rotationZ = (normalizedPoint[1] * Math.PI) / 2;
+                    const scale = scaleMin + ((normalizedPoint[2] + 1) / 2) * (scaleMax - scaleMin);
+                    
+                    // Velocity calculation: map normalized values to speed range
+                    let velocity;
+                    if (normalizedPoint[3] > 0) {
+                        // Map 0 to 1 to 0 to speedMax (positive direction)
+                        velocity = normalizedPoint[3] * speedMax;
+                    } else if (normalizedPoint[3] < 0) {
+                        // Map -1 to 0 to speedMin to 0 (negative direction)
+                        velocity = normalizedPoint[3] * Math.abs(speedMin);
+                    } else {
+                        // Handle zero case explicitly
+                        velocity = 0;
+                    }
+                    
+                    // Add detailed logging for velocity calculation
+                    console.log(`Point ${i}: normalized=${normalizedPoint[3]}, velocity=${velocity}`);
+                    
+                    const pointSize = sizeMin + ((normalizedPoint[4] + 1) / 2) * (sizeMax - sizeMin);
+                    
+                    // Calculate undulations based on dimension 6
+                    // Map from -1 to +1 to number of undulations (2-10)
+                    const undulationsMin = parseFloat(document.getElementById('undulationsMin').value) || 2;
+                    const undulationsMax = parseFloat(document.getElementById('undulationsMax').value) || 10;
+                    const undulations = Math.round(undulationsMin + ((normalizedPoint[6] + 1) / 2) * (undulationsMax - undulationsMin));
+                    
+                    // Calculate wave amplitude from dimension 7
+                    const amplitudeMin = parseFloat(document.getElementById('amplitudeMin').value) || 0.05;
+                    const amplitudeMax = parseFloat(document.getElementById('amplitudeMax').value) || 0.4;
+                    const waveAmplitude = amplitudeMin + ((normalizedPoint[7] + 1) / 2) * (amplitudeMax - amplitudeMin);
+                    
+                    // Calculate wave phase from dimension 8
+                    const phaseMin = parseFloat(document.getElementById('phaseMin').value) || 0;
+                    const phaseMax = parseFloat(document.getElementById('phaseMax').value) || 6.28; // 2π
+                    const wavePhase = phaseMin + ((normalizedPoint[8] + 1) / 2) * (phaseMax - phaseMin);
+                    
+                    const ringPoints = [];
+                    for (let p = 0; p <= numPoints; p++) {
+                        const angle = (p / numPoints) * Math.PI * 2;
+                        const baseX = Math.cos(angle);
+                        const baseZ = Math.sin(angle);
+                        
+                        // Add undulation effect with amplitude and phase control
+                        // sin(angle * frequency + phase) * amplitude
+                        const undulationEffect = Math.sin(angle * undulations + wavePhase) * waveAmplitude;
+                        
+                        // This creates complex radial distortions by combining higher dimensions
+                        // Each dimension past defined deformations contributes a weighted frequency component
+                        // The result is not simple waviness but intricate radial patterns
+                        let displacement = undulationEffect;
+                        let dimensionsUsed = 0;
+                        
+                        for (let d = 9; d < point.length && d < 384; d++) {
+                            if (point[d] !== undefined && !isNaN(point[d])) {
+                                // Each dimension adds a different frequency component
+                                const weight = Math.sin((d - 9) * angle);
+                                displacement += point[d] * weight;
+                                dimensionsUsed++;
+                            }
+                        }
+                        
+                        if (dimensionsUsed > 0) {
+                            // Scale the combined displacement effect
+                            displacement = (displacement / Math.sqrt(dimensionsUsed + 1)) * (curveMax - curveMin) + curveMin;
+                        }
+                        
+                        let x = baseX;
+                        let y = displacement;
+                        let z = baseZ;
+                        
+                        // Apply rotations
+                        const y1 = y * Math.cos(rotationX) - z * Math.sin(rotationX);
+                        const z1 = y * Math.sin(rotationX) + z * Math.cos(rotationX);
+                        y = y1;
+                        z = z1;
+                        
+                        const x1 = x * Math.cos(rotationZ) - y * Math.sin(rotationZ);
+                        const y2 = x * Math.sin(rotationZ) + y * Math.cos(rotationZ);
+                        x = x1;
+                        y = y2;
+                        
+                        ringPoints.push(new THREE.Vector3(
+                            x * scale * baseRadius,
+                            y * scale * baseRadius,
+                            z * scale * baseRadius
+                        ));
+                    }
+                    
+                    if (ringPoints.length >= 2) {
+                        try {
+                            // Create a closed curve
+                            const curve = new THREE.CatmullRomCurve3(ringPoints, true);
+                            const curvePoints = curve.getPoints(200);
+                            
+                            if (curvePoints.length < 2) {
+                                throw new Error("Not enough points generated for curve");
+                            }
+                            
+                            // Create yarn line with thicker line
+                            const geometry = new THREE.BufferGeometry().setFromPoints(curvePoints);
+                            const material = new THREE.LineBasicMaterial({
+                                color: new THREE.Color(colors[i * 3], colors[i * 3 + 1], colors[i * 3 + 2]),
+                                transparent: true,
+                                opacity: 0.8,
+                                linewidth: 2  // Note: linewidth > 1 only works in some browsers
+                            });
+                            const yarn = new THREE.Line(geometry, material);
+                            
+                            // Create animated point as a simple square
+                            const pointGeometry = new THREE.PlaneGeometry(pointSize * 0.2, pointSize * 0.2);
+                            const pointMaterial = new THREE.MeshBasicMaterial({
+                                color: new THREE.Color(colors[i * 3], colors[i * 3 + 1], colors[i * 3 + 2]),
+                                transparent: true,
+                                opacity: 1.0,
+                                side: THREE.DoubleSide
+                            });
+                            const pointMesh = new THREE.Mesh(pointGeometry, pointMaterial);
+                            
+                            // Initialize point position with proper error checking
+                            let initialProgress = Math.random();
+                            let initialPosition;
+                            try {
+                                initialPosition = curve.getPointAt(initialProgress);
+                                if (!initialPosition || !initialPosition.isVector3) {
+                                    // If invalid, try at position 0
+                                    initialProgress = 0;
+                                    initialPosition = curve.getPointAt(0);
+                                }
+                            } catch (e) {
+                                // Fallback to first point in the curve
+                                initialProgress = 0;
+                                initialPosition = ringPoints[0].clone();
+                            }
+                            
+                            pointMesh.position.copy(initialPosition);
+                            
+                            // Make point always face camera
+                            pointMesh.lookAt(camera.position);
+                            pointMesh.onBeforeRender = function() {
+                                this.lookAt(camera.position);
+                            };
+                            
+                            // Store animation data
+                            pointMesh.userData = {
+                                curve: curve,
+                                progress: initialProgress,
+                                velocity: velocity,
+                                // Add scatter parameters
+                                scatterFrequency: normalizedPoint[9], // Scatter frequency
+                                scatterLength: normalizedPoint[10],   // Scatter length
+                                scatterColor: normalizedPoint[11],    // Scatter color
+                                lastScatterTime: null,
+                                nextScatterTime: 0
+                            };
+                            
+                            group.add(yarn);
+                            group.add(pointMesh);
+                        } catch (error) {
+                            console.warn(`Error creating curve for point ${i}:`, error);
+                        }
+                    }
+                } catch (error) {
+                    console.warn('Error creating yarn', i, error);
+                }
+            });
+
+            // Create green wireframe cube with diagonals as origin marker
+            const cubeSize = 0.8; // Size of the cube
+            const originColor = 0x00ff00; // Bright green
+            
+            // Create wireframe cube with diagonals
+            function createWireframeCube() {
+                const group = new THREE.Group();
+                
+                // Create cube edges
+                const edges = [
+                    // Front face
+                    [-1, -1, -1], [1, -1, -1],
+                    [1, -1, -1], [1, 1, -1],
+                    [1, 1, -1], [-1, 1, -1],
+                    [-1, 1, -1], [-1, -1, -1],
+                    // Back face
+                    [-1, -1, 1], [1, -1, 1],
+                    [1, -1, 1], [1, 1, 1],
+                    [1, 1, 1], [-1, 1, 1],
+                    [-1, 1, 1], [-1, -1, 1],
+                    // Connecting edges
+                    [-1, -1, -1], [-1, -1, 1],
+                    [1, -1, -1], [1, -1, 1],
+                    [1, 1, -1], [1, 1, 1],
+                    [-1, 1, -1], [-1, 1, 1],
+                    // Diagonals
+                    [-1, -1, -1], [1, 1, 1],
+                    [1, -1, -1], [-1, 1, 1],
+                    [-1, -1, 1], [1, 1, -1],
+                    [1, -1, 1], [-1, 1, -1]
+                ];
+
+                const points = [];
+                for (let i = 0; i < edges.length; i += 2) {
+                    points.push(
+                        new THREE.Vector3(edges[i][0] * cubeSize/2, edges[i][1] * cubeSize/2, edges[i][2] * cubeSize/2),
+                        new THREE.Vector3(edges[i+1][0] * cubeSize/2, edges[i+1][1] * cubeSize/2, edges[i+1][2] * cubeSize/2)
+                    );
+                }
+
+                const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                const material = new THREE.LineBasicMaterial({
+                    color: originColor,
+                    linewidth: 2,
+                    transparent: true,
+                    opacity: 1.0
+                });
+
+                const wireframe = new THREE.LineSegments(geometry, material);
+                return wireframe;
+            }
+            
+            // Add origin cube
+            const originMarker = createWireframeCube();
+            group.add(originMarker);
+            
+            return group;
+        }
+
+        function updateVisualization() {
+            console.log('Starting visualization update');
+            
+            // Get selected documents with vector databases
+            const selectedDocs = document.querySelectorAll('.doc-checkbox:checked');
+            const vectorDbDocs = Array.from(selectedDocs).filter(doc => {
+                const docItem = doc.closest('.document-item');
+                return docItem.querySelector('.vector-db-indicator') !== null;
+            });
+            
+            // Clear existing visualization if no documents are selected
+            if (vectorDbDocs.length === 0) {
+                console.log('No vector documents selected, clearing visualization');
+                clearVisualization();
+                showOverlay('Select documents with vector databases to visualize');
+                return;
+            }
+
+            // Extract citekeys from selected documents
+            const selectedCitekeys = vectorDbDocs.map(doc => doc.id.replace('doc-', ''));
+            console.log('Selected documents with vector DBs:', selectedCitekeys);
+
+            // Prepare form data for visualization
+            const formData = new FormData();
+            selectedCitekeys.forEach(citekey => {
+                formData.append('databases[]', citekey);
+            });
+
+            // Add dimension mappings
+            formData.append('x_dimension', 0);
+            formData.append('y_dimension', 1);
+            formData.append('z_dimension', 2);
+            formData.append('w_dimension', 3);
+            formData.append('v_dimension', 4);
+            formData.append('color_dimension', 5);
+            formData.append('undulation_dimension', 6);
+            formData.append('amplitude_dimension', 7);
+            formData.append('phase_dimension', 8);
+            formData.append('scatter_frequency', 9);
+            formData.append('scatter_length', 10);
+            formData.append('scatter_color', 11);
+
+            // Show loading overlay
+            showOverlay('Loading visualization...');
+
+            // Send request to server
+            fetch('/', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.error) {
+                    throw new Error(data.error);
+                }
+                currentData = {
+                    points: data.points,
+                    metadata: data.metadata
+                };
+                updatePointCloud(data.points, data.metadata);
+                hideOverlay();
+            })
+            .catch(error => {
+                console.error('Visualization error:', error);
+                showOverlay('Error: ' + error.message);
+            });
+
+        }
+
+        // Add event listener for document selection changes
+        document.addEventListener('change', function(e) {
+            if (e.target.classList.contains('doc-checkbox')) {
+                updateVisualization();
+            }
+        });
+
+        // Add removal handler for selected documents
+        document.addEventListener('click', function(e) {
+            if (e.target.classList.contains('remove-doc')) {
+                e.preventDefault();
+                const citekey = e.target.dataset.citekey;
+        
+                // Uncheck the corresponding checkbox
+                const checkbox = document.getElementById(`doc-${citekey}`);
+                if (checkbox) {
+                    checkbox.checked = false;
+                }
+        
+                // Update visualization after removal
+                updateVisualization();
+        
+                // Update selected docs list
+                updateSelectedDocsList();
+            }       
+        });
+
+        // Function to update selected documents list
+        function updateSelectedDocsList() {
+            const selectedDocsContainer = document.getElementById('selectedDocs');
+            const selectedCheckboxes = document.querySelectorAll('.doc-checkbox:checked');
+    
+            selectedDocsContainer.innerHTML = '';
+    
+            selectedCheckboxes.forEach(checkbox => {
+                const docItem = checkbox.closest('.document-item');
+                const title = docItem.querySelector('.doc-title').textContent;
+                const citekey = checkbox.id.replace('doc-', '');
+        
+                const selectedDoc = document.createElement('div');
+                selectedDoc.className = 'selected-doc';
+                selectedDoc.innerHTML = `
+                    <span class="doc-title">${title}</span>
+                    <span class="remove-doc" data-citekey="${citekey}">[X]</span>
+                `;
+        
+                selectedDocsContainer.appendChild(selectedDoc);
+            });
+        }            
+
+        function updatePointCloud(pointsData, metadata) {
+            try {
+                console.log('Updating point cloud with:', {
+                    points: pointsData.length,
+                    metadata: metadata.length
+                });
+
+                if (animationFrameId) {
+                    cancelAnimationFrame(animationFrameId);
+                }
+
+                points.forEach(point => {
+                    if (point && scene) scene.remove(point);
+                });
+                points = [];
+
+                if (!pointsData || pointsData.length === 0) {
+                    console.warn('No points data received');
+                    showOverlay('No data points to visualize', 'error');
+                    return;
+                }
+
+                const colors = updateColors(pointsData, metadata);
+                
+                // Create visualization with validation
+                let visualization;
+                try {
+                    visualization = createSemanticYarn(pointsData, colors, metadata);
+                    
+                    // Debug: log the first few points and their properties
+                    let countAnimated = 0;
+                    visualization.children.forEach((child, i) => {
+                        if (child instanceof THREE.Mesh && child.userData && child.userData.curve) {
+                            countAnimated++;
+                            // Only log the first 3 animated points
+                            if (countAnimated <= 3) {
+                                console.log(`Animated point ${i}: velocity=${child.userData.velocity}, progress=${child.userData.progress}`);
+                            }
+                        }
+                    });
+                    console.log(`Total animated points: ${countAnimated}`);
+                    
+                    scene.add(visualization);
+                    points.push(visualization);
+                } catch (error) {
+                    console.error('Error creating visualization:', error);
+                    showOverlay('Error creating visualization: ' + error.message, 'error');
+                    return;
+                }
+
+                console.log('Visualization created with', pointsData.length, 'points');
+
+                // Update the chunk count
+                document.getElementById('chunkCount').textContent = pointsData.length;
+
+                // Only reset camera on first visualization, not on settings changes
+                if (firstVisualization) {
+                    // Reset camera to look at visualization center
+                    const box = new THREE.Box3().setFromObject(visualization);
+                    const center = box.getCenter(new THREE.Vector3());
+                    const size = box.getSize(new THREE.Vector3());
+                    const maxDim = Math.max(size.x, size.y, size.z);
+                    
+                    controls.target.copy(center);
+                    const distance = maxDim * 2;
+                    const offset = new THREE.Vector3(1, 1, 1).normalize().multiplyScalar(distance);
+                    camera.position.copy(center).add(offset);
+                    camera.up.set(0, 1, 0);
+                    camera.lookAt(center);
+                    camera.updateProjectionMatrix();
+                    controls.update();
+                    
+                    firstVisualization = false;
+                }
+
+                hideOverlay();
+                console.log('Visualization update complete');
+
+            } catch (error) {
+                console.error('Error updating visualization:', error);
+                showOverlay('Error updating visualization: ' + error.message, 'error');
+            }
+        }
+
+        function showOverlay(message, type) {
+            const overlay = document.getElementById('overlay');
+            overlay.textContent = message;
+            overlay.className = `overlay ${type}`;
+        }
+
+        function hideOverlay() {
+            const overlay = document.getElementById('overlay');
+            overlay.style.display = 'none';
+        }
+
+        function zoomExtents() {
+            if (!scene || points.length === 0) return;
+            
+            const box = new THREE.Box3().setFromObject(points[0]);
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+            const maxDim = Math.max(size.x, size.y, size.z);
+            
+            controls.target.copy(center);
+            const distance = maxDim * 2; // Increased multiplier for better view
+            const offset = new THREE.Vector3(1, 1, 1).normalize().multiplyScalar(distance);
+            camera.position.copy(center).add(offset);
+            camera.lookAt(center);
+            camera.updateProjectionMatrix();
+            controls.update();
+        }
+
+        // Function to calculate scatter interval based on normalized scatter frequency
+        function getScatterInterval(normalizedFrequency) {
+            const freqMin = parseFloat(document.getElementById('scatterFreqMin').value) || 0.1; // 0.1 Hz = once per 10 seconds
+            const freqMax = parseFloat(document.getElementById('scatterFreqMax').value) || 1.0; // 1.0 Hz = once per second
+            
+            // Map from -1 to +1 to frequency range (in Hz)
+            const frequency = freqMin + ((normalizedFrequency + 1) / 2) * (freqMax - freqMin);
+            
+            // Convert frequency (Hz) to interval (seconds)
+            return 1 / Math.max(0.01, frequency); // Avoid division by zero
+        }
+        
+        // Function to create a scatter line from a point
+        function createScatterLine(pointMesh) {
+            try {
+                // Get global settings
+                const scatterVelocity = parseFloat(document.getElementById('scatterVelocity').value) || 0.05;
+                const scatterLifetime = parseFloat(document.getElementById('scatterLife').value) || 2.0;
+                
+                // Get scatter length parameter
+                const scatterLengthMin = parseFloat(document.getElementById('scatterLengthMin').value) || 0.5;
+                const scatterLengthMax = parseFloat(document.getElementById('scatterLengthMax').value) || 5.0;
+                
+                // Map normalized value (-1 to +1) to length
+                const normalizedLength = pointMesh.userData.scatterLength || 0;
+                const scatterLength = scatterLengthMin + ((normalizedLength + 1) / 2) * (scatterLengthMax - scatterLengthMin);
+                
+                // Determine direction (negative = away from origin, positive = towards origin)
+                const direction = normalizedLength >= 0 ? 1 : -1;
+                
+                // Create line from point position to origin (or away from origin)
+                const origin = new THREE.Vector3(0, 0, 0);
+                const pointPos = pointMesh.position.clone();
+                
+                // Calculate end point based on direction and length
+                let endPoint;
+                if (direction > 0) {
+                    // Direction toward origin
+                    const dirVector = new THREE.Vector3().subVectors(origin, pointPos).normalize();
+                    endPoint = pointPos.clone().add(dirVector.multiplyScalar(scatterLength));
+                } else {
+                    // Direction away from origin
+                    const dirVector = new THREE.Vector3().subVectors(pointPos, origin).normalize();
+                    endPoint = pointPos.clone().add(dirVector.multiplyScalar(scatterLength));
+                }
+                
+                // Create line geometry and material
+                const geometry = new THREE.BufferGeometry().setFromPoints([pointPos, endPoint]);
+                
+                // Determine color based on scatter color parameter
+                let color;
+                const normalizedColor = pointMesh.userData.scatterColor || 0;
+                
+                if (normalizedColor < -0.33) {
+                    // -1.0 to -0.33: Blue to Cyan
+                    const t = (normalizedColor + 1) / 0.67;  // 0 to 1
+                    color = new THREE.Color(0, t, 1);
+                } else if (normalizedColor < 0.33) {
+                    // -0.33 to 0.33: Cyan to Yellow
+                    const t = (normalizedColor + 0.33) / 0.66;  // 0 to 1
+                    color = new THREE.Color(t, 1, 1 - t);
+                } else {
+                    // 0.33 to 1.0: Yellow to Red
+                    const t = (normalizedColor - 0.33) / 0.67;  // 0 to 1
+                    color = new THREE.Color(1, 1 - t, 0);
+                }
+                
+                const material = new THREE.LineBasicMaterial({
+                    color: color,
+                    transparent: true,
+                    opacity: 1.0
+                });
+                
+                const line = new THREE.Line(geometry, material);
+                
+                // Store line data for animation
+                line.userData = {
+                    startPoint: pointPos.clone(),
+                    endPoint: endPoint.clone(),
+                    velocity: scatterVelocity * direction,
+                    lifetime: scatterLifetime,
+                    age: 0,
+                    originPoint: pointPos.clone()
+                };
+                
+                scene.add(line);
+                scatterLines.push(line);
+                
+            } catch (error) {
+                console.warn('Error creating scatter line:', error);
+            }
+        }
+        
+        // Function to update all scatter lines
+        function updateScatterLines(deltaTime) {
+            const linesToRemove = [];
+            
+            scatterLines.forEach((line, index) => {
+                if (!line.userData) return;
+                
+                try {
+                    // Update age
+                    line.userData.age += deltaTime;
+                    
+                    // Calculate opacity based on lifetime
+                    const remainingLife = Math.max(0, 1 - line.userData.age / line.userData.lifetime);
+                    line.material.opacity = remainingLife;
+                    
+                    // Mark for removal if expired
+                    if (line.userData.age >= line.userData.lifetime) {
+                        linesToRemove.push(index);
+                        return;
+                    }
+                    
+                    // Move the line
+                    const speed = line.userData.velocity * deltaTime;
+                    const direction = line.userData.velocity >= 0 ? 
+                        new THREE.Vector3().subVectors(line.userData.endPoint, line.userData.startPoint).normalize() :
+                        new THREE.Vector3().subVectors(line.userData.startPoint, line.userData.endPoint).normalize();
+                    
+                    line.userData.startPoint.add(direction.clone().multiplyScalar(speed));
+                    line.userData.endPoint.add(direction.clone().multiplyScalar(speed));
+                    
+                    // Update geometry
+                    const positions = line.geometry.attributes.position.array;
+                    positions[0] = line.userData.startPoint.x;
+                    positions[1] = line.userData.startPoint.y;
+                    positions[2] = line.userData.startPoint.z;
+                    positions[3] = line.userData.endPoint.x;
+                    positions[4] = line.userData.endPoint.y;
+                    positions[5] = line.userData.endPoint.z;
+                    line.geometry.attributes.position.needsUpdate = true;
+                    
+                } catch (error) {
+                    console.warn('Error updating scatter line:', error);
+                    linesToRemove.push(index);
+                }
+            });
+            
+            // Remove expired lines in reverse order to prevent index issues
+            for (let i = linesToRemove.length - 1; i >= 0; i--) {
+                const index = linesToRemove[i];
+                const line = scatterLines[index];
+                scene.remove(line);
+                line.geometry.dispose();
+                line.material.dispose();
+                scatterLines.splice(index, 1);
+            }
+        }
+
+        // Initialize when page loads
+        window.addEventListener('load', () => {
+            console.log('Page loaded, initializing...');
+            
+            // Initialize Three.js first
+            initThreeJS();
+            
+            // Initialize settings controls
+            initializeSettings();
+            
+            // Load saved settings
+            loadSettings();
+            
+            // Add document selection listener
+            document.addEventListener('change', function(e) {
+                if (e.target.classList.contains('doc-checkbox')) {
+                    console.log('Document selection changed');
+                    updateVisualization();
+                    updateSelectedDocsList();
+                }
+            });
+        });
+        
+        // Function to save current settings to localStorage
+        function saveSettings() {
+            try {
+                const settings = {
+                    scaleMin: document.getElementById('scaleMin').value,
+                    scaleMax: document.getElementById('scaleMax').value,
+                    curveMin: document.getElementById('curveMin').value,
+                    curveMax: document.getElementById('curveMax').value,
+                    speedMin: document.getElementById('speedMin').value,
+                    speedMax: document.getElementById('speedMax').value,
+                    sizeMin: document.getElementById('sizeMin').value,
+                    sizeMax: document.getElementById('sizeMax').value,
+                    undulationsMin: document.getElementById('undulationsMin').value,
+                    undulationsMax: document.getElementById('undulationsMax').value,
+                    amplitudeMin: document.getElementById('amplitudeMin').value,
+                    amplitudeMax: document.getElementById('amplitudeMax').value,
+                    phaseMin: document.getElementById('phaseMin').value,
+                    phaseMax: document.getElementById('phaseMax').value,
+                    scatterFreqMin: document.getElementById('scatterFreqMin').value,
+                    scatterFreqMax: document.getElementById('scatterFreqMax').value,
+                    scatterLengthMin: document.getElementById('scatterLengthMin').value,
+                    scatterLengthMax: document.getElementById('scatterLengthMax').value,
+                    scatterVelocity: document.getElementById('scatterVelocity').value,
+                    scatterLife: document.getElementById('scatterLife').value,
+                    colorMode: document.getElementById('colorMode').value
+                };
+                
+                localStorage.setItem('vectorVisSettings', JSON.stringify(settings));
+                console.log('Settings saved successfully:', settings);
+                
+                // Visual feedback
+                const saveButton = document.getElementById('saveSettings');
+                const originalText = saveButton.textContent;
+                saveButton.textContent = 'Saved!';
+                setTimeout(() => {
+                    saveButton.textContent = originalText;
+                }, 1500);
+                
+            } catch (error) {
+                console.error('Error saving settings:', error);
+                alert('Error saving settings: ' + error.message);
+            }
+        }
+        
+        // Function to load settings from localStorage
+        function loadSettings() {
+            const savedSettings = localStorage.getItem('vectorVisSettings');
+            if (savedSettings) {
+                const settings = JSON.parse(savedSettings);
+                
+                // Apply each saved setting to its input field
+                Object.keys(settings).forEach(key => {
+                    const element = document.getElementById(key);
+                    if (element) {
+                        element.value = settings[key];
+                    }
+                });
+                
+                console.log('Loaded saved settings');
+            }
+        }
+
+        // Move this event listener initialization out of the DOMContentLoaded block
+        function initializeSettings() {
+            // Get elements
+            const settingsButton = document.querySelector('.settings-button');
+            const settingsPopup = document.querySelector('.settings-popup');
+            const closeButton = document.querySelector('.settings-close-button');
+
+            console.log('Settings elements:', {
+                button: settingsButton,
+                popup: settingsPopup,
+                close: closeButton
+            });
+
+            if (!settingsButton || !settingsPopup) {
+                console.error('Settings elements not found');
+                return;
+            }
+
+            // Fix popup initial state
+            settingsPopup.style.display = 'none';
+            settingsPopup.classList.remove('active');
+
+            // Toggle settings on button click
+            settingsButton.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                const isActive = settingsPopup.classList.toggle('active');
+                settingsPopup.style.display = isActive ? 'block' : 'none';
+                console.log('Settings button clicked, popup state:', isActive);
+            });
+
+            // Close on X button click
+            if (closeButton) {
+                closeButton.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    settingsPopup.classList.remove('active');
+                    settingsPopup.style.display = 'none';
+                });
+            }
+
+            // Close when clicking outside
+            document.addEventListener('click', (e) => {
+                if (!settingsPopup.contains(e.target) && !settingsButton.contains(e.target)) {
+                    settingsPopup.classList.remove('active');
+                    settingsPopup.style.display = 'none';
+                }
+            });
+
+            // Prevent popup from closing when clicking inside it
+            settingsPopup.addEventListener('click', (e) => {
+                e.stopPropagation();
+            });
+
+            // Add save settings button functionality
+            const saveSettingsButton = document.getElementById('saveSettings');
+            if (saveSettingsButton) {
+                saveSettingsButton.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    saveSettings();
+                });
+                console.log('Save settings button initialized');
+            } else {
+                console.error('Save settings button not found');
+            }
+        }
+
+        // Add new function to clear visualization
+        function clearVisualization() {
+            if (points.length > 0) {
+                points.forEach(point => {
+                    if (point && scene) {
+                        scene.remove(point);
+                    }
+                });
+                points = [];
+            }
+            
+            // Clear scatter lines
+            scatterLines.forEach(line => {
+                if (line && scene) {
+                    scene.remove(line);
+                    if (line.geometry) line.geometry.dispose();
+                    if (line.material) line.material.dispose();
+                }
+            });
+            scatterLines = [];
+            
+            // Reset current data
+            currentData = null;
+            
+            // Update chunk count
+            document.getElementById('chunkCount').textContent = '0';
+        }
+    </script>
 </body>
-</html> 
+</html>

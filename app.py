@@ -25,6 +25,11 @@ import chromadb
 from llama_index.vector_stores.chroma import ChromaVectorStore
 import time
 from flask_cors import CORS
+from db_utils import VectorDBManager
+import numpy as np
+from pathlib import Path
+
+
 
 app = Flask(__name__)
 CORS(app)
@@ -249,12 +254,102 @@ def get_or_create_index(citekey: str, file_path: str, file_type: str, model_name
     storage_context = StorageContext.from_defaults(vector_store=vector_store)
     return VectorStoreIndex.from_vector_store(vector_store=vector_store, storage_context=storage_context)
 
-@app.route('/')
+@app.route('/', methods=['GET', 'POST'])
 def index():
     """Render the main page."""
     initialize_app()  # Ensure models are initialized
     chat_history = load_chat_history()
     # Get all documents from Zotero API (BibTeX only)
+    available_dbs = db_manager.get_available_databases()
+    print(f"Available databases: {available_dbs}")
+    
+    if request.method == 'POST':
+        try:
+            selected_dbs = request.form.getlist('databases[]') or request.form.getlist('databases')
+            if not selected_dbs:
+                return jsonify({'error': 'No databases selected'}), 400
+
+            x_dim = int(request.form.get('x_dimension', 0))
+            y_dim = int(request.form.get('y_dimension', 1))
+            z_dim = int(request.form.get('z_dimension', 2))
+            v_dim = int(request.form.get('w_dimension', 3))  # Velocity dimension
+            p_dim = int(request.form.get('v_dimension', 4))  # Point size dimension
+            c_dim = int(request.form.get('color_dimension', 5))  # Color dimension
+            u_dim = int(request.form.get('undulation_dimension', 6))  # Undulation dimension
+            a_dim = int(request.form.get('amplitude_dimension', 7))  # Wave amplitude dimension
+            ph_dim = int(request.form.get('phase_dimension', 8))  # Wave phase dimension
+            sf_dim = int(request.form.get('scatter_frequency', 9))  # Scatter frequency dimension
+            sl_dim = int(request.form.get('scatter_length', 10))  # Scatter length dimension
+            sc_dim = int(request.form.get('scatter_color', 11))  # Scatter color dimension
+            viz_type = request.form.get('viz_type', '3d')
+            
+            print(f"Processing request: dims=({x_dim}, {y_dim}, {z_dim}, {v_dim}, {p_dim}, {c_dim}, {u_dim}, {a_dim}, {ph_dim}, {sf_dim}, {sl_dim}, {sc_dim}), type={viz_type}, dbs={selected_dbs}")
+            
+            embeddings, metadata = db_manager.get_embeddings_and_metadata(selected_dbs)
+            if embeddings is None or len(embeddings) == 0:
+                return jsonify({'error': 'No embeddings found in selected databases'}), 400
+            
+            print(f"Retrieved embeddings shape: {embeddings.shape}")
+            print(f"Sample of raw embeddings: {embeddings[:3]}")
+            
+            # Normalize embeddings to [-1, 1] range for better visualization
+            embeddings_min = embeddings.min(axis=0)
+            embeddings_max = embeddings.max(axis=0)
+            embeddings_norm = 2 * (embeddings - embeddings_min) / (embeddings_max - embeddings_min) - 1
+            
+            print(f"Sample of normalized embeddings: {embeddings_norm[:3]}")
+            
+            # Prepare points data including all required dimensions
+            dimensions = [x_dim, y_dim, z_dim, v_dim, p_dim, c_dim, u_dim, a_dim, ph_dim, sf_dim, sl_dim, sc_dim]
+            print(f"Using dimensions: {dimensions}")
+            
+            # Ensure all dimensions are valid
+            max_dim = embeddings_norm.shape[1] - 1
+            valid_dimensions = [min(d, max_dim) for d in dimensions]
+            if valid_dimensions != dimensions:
+                print(f"Warning: Some dimensions were out of range. Max dimension is {max_dim}. Using {valid_dimensions}")
+                dimensions = valid_dimensions
+            
+            points = embeddings_norm[:, dimensions].tolist()
+            
+            # Generate colors based on database
+            unique_dbs = list(set(m['db_name'] for m in metadata))
+            colors = [f'hsl({h},70%,50%)' for h in np.linspace(0, 360, len(unique_dbs))]
+            color_map = dict(zip(unique_dbs, colors))
+            point_colors = [color_map[m['db_name']] for m in metadata]
+            
+            # Prepare metadata for tooltips
+            point_metadata = [{
+                'database': m['db_name'],
+                **{k: v for k, v in m.items() if k != 'db_name'}
+            } for m in metadata]
+            
+            return jsonify({
+                'points': points,
+                'colors': point_colors,
+                'metadata': point_metadata,
+                'dimensions': {
+                    'x': x_dim,
+                    'y': y_dim,
+                    'z': z_dim,
+                    'v': v_dim,  # Velocity
+                    'p': p_dim,  # Point size
+                    'c': c_dim,  # Color
+                    'u': u_dim,  # Undulations
+                    'a': a_dim,  # Wave amplitude
+                    'ph': ph_dim,  # Wave phase
+                    'sf': sf_dim,  # Scatter frequency
+                    'sl': sl_dim,  # Scatter length
+                    'sc': sc_dim  # Scatter color
+                }
+            })
+            
+        except Exception as e:
+            import traceback
+            print(f"Error generating visualization: {str(e)}")
+            print(traceback.format_exc())
+            return jsonify({'error': str(e)}), 500
+    
     documents = []
     response = requests.get("http://localhost:23119/api/users/0/items?format=bibtex")
     if response.status_code == 200:
@@ -274,7 +369,8 @@ def index():
                     "folder_path": "",  # Will be fetched when needed
                     "has_vector_db": has_vector_db
                 })
-    return render_template('index.html', chat_history=chat_history, documents=documents)
+
+    return render_template('index.html', chat_history=chat_history, documents=documents, available_dbs=available_dbs)
 
 @app.route('/chat', methods=['POST'])
 def chat():
@@ -619,6 +715,14 @@ def fetch_models_with_retry():
     AVAILABLE_MODELS = [DEFAULT_MODEL]
     return False
 
+# Initialize the database manager with proper path resolution
+app_dir = Path(os.path.dirname(os.path.abspath(__file__)))
+print(f"App directory: {app_dir}")
+
+db_manager = VectorDBManager(app_dir)
+
+
+
 @app.route('/api/models', methods=['GET'])
 def get_models():
     """Returns the list of available models."""
@@ -643,6 +747,14 @@ def get_models():
     }
     
     return jsonify(response_data)
+
+@app.route('/db_info')
+def db_info():
+    """Get information about available databases"""
+    available_dbs = db_manager.get_available_databases()
+    return jsonify({'databases': available_dbs})
+
+
 
 if __name__ == '__main__':
     # Print startup banner only once
