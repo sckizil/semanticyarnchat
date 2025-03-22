@@ -7,43 +7,43 @@ class ModelManager {
         this.modelSelect = document.getElementById('modelSelect');
         this.defaultModel = 'meta-llama-3.1-8b-instruct';
         this.initialized = false;
-        this.initialize();
+        
+        if (this.modelSelect) {
+            this.initialize();
+        } else {
+            console.error('ModelManager: Could not find modelSelect element');
+        }
     }
 
     initialize() {
-        if (window.modelsFetchedDirectly) {
-            console.log('Models already fetched by direct script');
-            this.initialized = true;
-            return;
-        }
-
         this.fetchModelsWithRetry();
     }
 
-    async fetchModelsWithRetry(isInitialLoad = true, attempt = 1) {
+    async fetchModelsWithRetry(attempt = 1) {
         const maxRetries = 3;
+        const baseDelay = 1000;
         
         try {
-            console.log(`Fetching models (attempt ${attempt}/${maxRetries})`);
-            await this.fetchModels(isInitialLoad);
+            console.log(`ModelManager: Fetching models (attempt ${attempt}/${maxRetries})`);
+            await this.fetchModels();
             this.initialized = true;
         } catch (error) {
-            console.error(`Error fetching models (attempt ${attempt}):`, error);
+            console.error(`ModelManager: Error fetching models (attempt ${attempt}):`, error);
             
             if (attempt < maxRetries) {
-                const delay = 2000 * attempt;
-                console.log(`Retrying in ${delay}ms...`);
+                const delay = baseDelay * attempt;
+                console.log(`ModelManager: Retrying in ${delay}ms...`);
                 setTimeout(() => {
-                    this.fetchModelsWithRetry(isInitialLoad, attempt + 1);
+                    this.fetchModelsWithRetry(attempt + 1);
                 }, delay);
             } else {
-                console.log('Using default model after max retries');
+                console.warn('ModelManager: Using default model after max retries');
                 this.setDefaultModel();
             }
         }
     }
 
-    async fetchModels(isInitialLoad) {
+    async fetchModels() {
         if (!this.modelSelect) {
             throw new Error('Model select element not found');
         }
@@ -77,6 +77,10 @@ class ModelManager {
         } else {
             this.modelSelect.disabled = false;
             this.modelSelect.classList.remove('loading');
+            this.modelSelect.classList.add('models-loaded');
+            setTimeout(() => {
+                this.modelSelect.classList.remove('models-loaded');
+            }, 1000);
         }
     }
 
@@ -114,12 +118,6 @@ class ModelManager {
             this.modelSelect.value = currentSelection;
         }
 
-        // Visual feedback
-        this.modelSelect.classList.add('models-loaded');
-        setTimeout(() => {
-            this.modelSelect.classList.remove('models-loaded');
-        }, 1000);
-
         this.setLoadingState(false);
     }
 
@@ -139,5 +137,5 @@ class ModelManager {
     }
 }
 
-// Export for use in other files
+// Initialize immediately when the script loads
 window.ModelManager = ModelManager;

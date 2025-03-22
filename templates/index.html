@@ -14,104 +14,6 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/settings.css') }}">
     <style>
     </style>
-    
-    <!-- Direct model fetching script -->
-    <script>
-    // This script gets executed in the head to ensure it runs before main.js
-    document.addEventListener('DOMContentLoaded', function() {
-        console.log('[Direct] Document loaded, fetching models once.');
-        
-        // Override fetchAvailableModels in main.js to avoid conflicts
-        window.modelsFetchedDirectly = false;
-        
-        // Direct fetch function - only called once
-        function fetchModelsOnce() {
-            console.log('[Direct] Fetching models...');
-            
-            const modelSelect = document.getElementById('modelSelect');
-            if (!modelSelect) {
-                console.error('[Direct] Model select element not found!');
-                return;
-            }
-            
-            // Set loading state
-            modelSelect.innerHTML = '<option value="loading">Loading models...</option>';
-            modelSelect.disabled = true;
-            modelSelect.classList.add('loading');
-            
-            // Make request
-            fetch('http://localhost:5001/api/models')
-                .then(response => {
-                    console.log('[Direct] Response status:', response.status);
-                    if (!response.ok) {
-                        throw new Error(`API responded with ${response.status}`);
-                    }
-                    return response.json();
-                })
-                .then(data => {
-                    console.log('[Direct] Got data:', data);
-                    
-                    // Enable the select
-                    modelSelect.disabled = false;
-                    modelSelect.classList.remove('loading');
-                    
-                    // Clear it
-                    modelSelect.innerHTML = '';
-                    
-                    // Add models
-                    if (data.models && Array.isArray(data.models) && data.models.length > 0) {
-                        console.log('[Direct] Adding', data.models.length, 'models');
-                        
-                        // Add each model as an option
-                        data.models.forEach(model => {
-                            const option = document.createElement('option');
-                            option.value = model;
-                            option.textContent = model;
-                            modelSelect.appendChild(option);
-                        });
-                        
-                        // Visual feedback
-                        modelSelect.classList.add('models-loaded');
-                        setTimeout(() => {
-                            modelSelect.classList.remove('models-loaded');
-                        }, 1000);
-                        
-                        // Indicate that models were fetched
-                        window.modelsFetchedDirectly = true;
-                    } else {
-                        console.warn('[Direct] No models in response');
-                        const option = document.createElement('option');
-                        option.value = 'meta-llama-3.1-8b-instruct';
-                        option.textContent = 'meta-llama-3.1-8b-instruct';
-                        modelSelect.appendChild(option);
-                    }
-                })
-                .catch(error => {
-                    console.error('[Direct] Error:', error);
-                    
-                    // Reset select
-                    modelSelect.innerHTML = '';
-                    const option = document.createElement('option');
-                    option.value = 'meta-llama-3.1-8b-instruct';
-                    option.textContent = 'meta-llama-3.1-8b-instruct';
-                    modelSelect.appendChild(option);
-                    modelSelect.disabled = false;
-                    modelSelect.classList.remove('loading');
-                });
-        }
-        
-        // Call once at page load - no repeated calls
-        fetchModelsOnce();
-        
-        // Override the fetchAvailableModels function from main.js to prevent conflicts
-        window.fetchAvailableModels = function(isInitialLoad) {
-            console.log('[Direct] Original fetchAvailableModels called, but bypassed.');
-            // Do nothing - we've already fetched models
-            return;
-        };
-
-    });
-    </script>
 </head>
 <body>
     <!-- Single Visualization layer (bottom) -->
@@ -319,21 +221,28 @@
     <!-- Load scripts in correct order -->
     <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
     <script src="https://unpkg.com/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <script src="{{ url_for('static', filename='js/models.js') }}"></script>
     <script src="{{ url_for('static', filename='js/settings.js') }}"></script>
     <script src="{{ url_for('static', filename='js/visualization.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/chat.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/documents.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/glossary.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
     
     <script>
-        // Initialize with explicit order
         document.addEventListener('DOMContentLoaded', function() {
             console.log('Initializing components...');
             
-            // Initialize settings first
+            // Initialize model manager first
+            window.modelManager = new ModelManager();
+            
+            // Initialize settings
             window.settingsManager = new SettingsManager();
             
-            // Then initialize visualization
+            // Initialize visualization
             window.visualizationManager = new VisualizationManager();
             
-            // Remove duplicate event handlers from index.html since they're now in the VisualizationManager
+            // Remove duplicate event handlers
             const settingsInputs = document.querySelectorAll('.settings-popup input, .settings-popup select');
             settingsInputs.forEach(input => {
                 const newInput = input.cloneNode(true);
@@ -348,11 +257,6 @@
             });
         });
     </script>
-    <script src="{{ url_for('static', filename='js/models.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/chat.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/documents.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/glossary.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 
     <script>
         /* =============== DIMENSION MAPPING DOCUMENTATION ==================
