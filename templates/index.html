@@ -320,5 +320,30 @@
             });
         });
     </script>
+
+    <!-- Add before your closing </body> tag -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <!-- Make sure this comes after socket.io.js but before your other scripts -->
+    <script>
+        const socket = io();
+        
+        socket.on('connect', () => {
+            console.log('Connected to Socket.IO server');
+        });
+        
+        socket.on('nodes_retrieved', (data) => {
+            console.log('Nodes retrieved:', data);
+            if (window.visualizationManager) {
+                window.visualizationManager.handleRetrievedNodes([data]);
+            }
+        });
+        
+        socket.on('chat_response_complete', () => {
+            console.log('Chat response complete');
+            if (window.visualizationManager) {
+                window.visualizationManager.handleResponseComplete();
+            }
+        });
+    </script>
 </body>
 </html>

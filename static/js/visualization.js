@@ -43,6 +43,28 @@ class VisualizationManager {
         }
 
         this.queryAnimationManager = new QueryAnimationManager();
+
+        // Setup socket event handlers
+        this.setupSocketHandlers();
+    }
+
+    setupSocketHandlers() {
+        const socket = io();
+        
+        // Listen for retrieved nodes events
+        socket.on('nodes_retrieved', (data) => {
+            console.log('Nodes retrieved:', data);
+            if (data.node_ids && data.node_ids.length > 0) {
+                // Start animation immediately when nodes are found
+                this.queryAnimationManager.handleRetrievedNodes(data.node_ids, this.scene);
+            }
+        });
+
+        // Listen for chat response completion
+        socket.on('chat_response_complete', () => {
+            console.log('Chat response complete, triggering decay');
+            this.queryAnimationManager.handleResponseComplete();
+        });
     }
 
     initialize(callback) {
@@ -197,6 +219,9 @@ class VisualizationManager {
 
     updatePoints(currentTime, deltaTime) {
         if (this.points.length > 0) {
+            // Convert to milliseconds for query animations
+            const timeMs = currentTime * 1000;
+            
             this.points[0].children.forEach(child => {
                 if (child instanceof THREE.Mesh && child.userData?.curve) {
                     try {
@@ -249,14 +274,31 @@ class VisualizationManager {
                                 child.userData.nextScatterTime = currentTime + scatterInterval;
                             }
                         }
+
+                        // Apply query animation to both point and ring
+                        if (child.userData?.nodeId) {
+                            // Find the associated ring
+                            const ring = this.points[0].children.find(obj => 
+                                obj instanceof THREE.Line && 
+                                obj.userData?.nodeId === child.userData.nodeId
+                            );
+                            
+                            // Update animations with proper timing
+                            if (ring) {
+                                const ringUpdated = this.queryAnimationManager.updateAnimation(ring, timeMs);
+                                if (ringUpdated) {
+                                    ring.material.needsUpdate = true;
+                                }
+                            }
+                            
+                            const pointUpdated = this.queryAnimationManager.updateAnimation(child, timeMs);
+                            if (pointUpdated) {
+                                child.material.needsUpdate = true;
+                            }
+                        }
                     } catch (error) {
                         console.warn('Animation error:', error);
                     }
-                }
-                
-                // Update query animation if active
-                if (child.userData?.nodeId) {
-                    this.queryAnimationManager.updateAnimation(child, performance.now());
                 }
             });
         }
@@ -745,20 +787,6 @@ class VisualizationManager {
             // Update with fresh data
             this.updatePointCloud(data.points, data.metadata);
 
-            // Handle retrieved nodes animation with logging
-            if (data.retrieved_nodes_data && this.points[0]) {
-                console.log('Retrieved nodes data:', data.retrieved_nodes_data);
-                const activeNodeIds = new Set();
-                
-                data.retrieved_nodes_data.forEach(nodeData => {
-                    console.log('Processing node data:', nodeData);
-                    nodeData.node_ids.forEach(id => activeNodeIds.add(id));
-                });
-                
-                console.log('Active node IDs:', Array.from(activeNodeIds));
-                this.queryAnimationManager.handleRetrievedNodes(Array.from(activeNodeIds), this.scene);
-            }
-
             this.hideOverlay();
         })
         .catch(error => {
@@ -1012,27 +1040,25 @@ class VisualizationManager {
     }
 
     handleRetrievedNodes(nodeData) {
-        console.log('Processing retrieved nodes data:', nodeData);
         if (!nodeData || !nodeData.length || !this.scene) {
             console.log('No valid node data or scene');
             return;
         }
 
-        // Extract all node IDs from the data
-        const allNodeIds = new Set();
+        // Process each batch of nodes immediately
         nodeData.forEach(data => {
-            console.log('Node data entry:', data);
-            if (data.node_ids) {
-                data.node_ids.forEach(id => allNodeIds.add(id));
+            if (data.node_ids && data.node_ids.length > 0) {
+                console.log(`Animating nodes for context '${data.context}':`, data.node_ids);
+                // Start animation immediately for this batch
+                this.queryAnimationManager.handleRetrievedNodes(data.node_ids, this.scene);
             }
         });
+    }
 
-        console.log('Collected node IDs for animation:', Array.from(allNodeIds));
-
-        // Trigger animation for these nodes
-        if (allNodeIds.size > 0) {
-            this.queryAnimationManager.handleRetrievedNodes(Array.from(allNodeIds), this.scene);
-        }
+    // Add new method to handle response completion
+    handleResponseComplete() {
+        console.log('LLM response complete, starting decay phase');
+        this.queryAnimationManager.handleResponseComplete();
     }
 }
 window.VisualizationManager = VisualizationManager;

@@ -2,6 +2,7 @@ class QueryAnimationManager {
     constructor() {
         this.activeAnimations = new Map();
         this.debug = true;
+        this.decayDuration = 10000;
     }
 
     log(message) {
@@ -19,30 +20,11 @@ class QueryAnimationManager {
 
         const currentTime = performance.now();
         let matchCount = 0;
-        
-        // Clear existing animations first
-        this.clearAnimations();
 
-        // Debug: Log all available nodes
-        const availableNodeIds = new Set();
-        scene.traverse((object) => {
-            if (object?.userData?.nodeId) {
-                availableNodeIds.add(object.userData.nodeId);
-            }
-        });
-        
-        this.log(`Available node IDs in scene: ${Array.from(availableNodeIds).join(', ')}`);
-        this.log(`Looking for node IDs: ${nodeIds.join(', ')}`);
-
-        // Find and animate matching rings
         scene.traverse((object) => {
             if (object instanceof THREE.Line && object?.userData?.nodeId) {
                 const nodeId = object.userData.nodeId;
-                const isMatch = nodeIds.includes(nodeId);
-                
-                this.log(`Checking ring with ID ${nodeId}: ${isMatch ? 'MATCH' : 'no match'}`);
-                
-                if (isMatch) {
+                if (nodeIds.includes(nodeId) && !this.activeAnimations.has(nodeId)) {
                     matchCount++;
                     this.startAnimation(object, currentTime);
                 }
@@ -51,7 +33,6 @@ class QueryAnimationManager {
 
         this.log(`Found and animated ${matchCount} matching rings`);
         this.log(`Active animations: ${this.activeAnimations.size}`);
-        
     }
 
     startAnimation(mesh, startTime = performance.now()) {
@@ -63,93 +44,128 @@ class QueryAnimationManager {
         const nodeId = mesh.userData.nodeId;
         this.log(`Starting animation for node: ${nodeId}`);
 
-        // Store original material properties
-        if (mesh instanceof THREE.Line) {
-            mesh.userData.originalOpacity = mesh.material.opacity;
-            mesh.userData.originalLinewidth = mesh.material.linewidth;
-            mesh.userData.originalColor = mesh.material.color.clone(); // Store original color
+        const copiedMesh = mesh.clone();
+        copiedMesh.material = mesh.material.clone();
+        copiedMesh.material.color.set(0xff0000);
+        copiedMesh.material.transparent = false;
+        copiedMesh.userData = { ...mesh.userData, isAnimationCopy: true };
+        
+        if (copiedMesh.geometry.isBufferGeometry) {
+            const positions = copiedMesh.geometry.attributes.position.array;
+            copiedMesh.userData.originalVertices = Float32Array.from(positions);
         }
+        
+        mesh.parent.add(copiedMesh);
 
-        // Create animation data with phase control
         this.activeAnimations.set(nodeId, {
             startTime,
-            decayStartTime: null,  // Will be set when decay phase starts
-            mesh,
-            originalProps: {
-                opacity: mesh.material.opacity,
-                linewidth: mesh.material.linewidth,
-                color: mesh.material.color.clone() // Store color in props
-            },
-            phase: 'highlight'  // Initial phase is highlight without decay
+            decayStartTime: null,
+            originalMesh: mesh,
+            animatedMesh: copiedMesh,
+            phase: 'highlight',
+            isResponding: true
         });
+
+        this.log(`Animation started for ${nodeId} with copied ring`);
     }
 
     updateAnimation(mesh, currentTime) {
         if (!mesh?.userData?.nodeId) return false;
-
+    
         const nodeId = mesh.userData.nodeId;
         const animData = this.activeAnimations.get(nodeId);
         if (!animData) return false;
-
+    
         const elapsed = currentTime - animData.startTime;
+        const copiedMesh = animData.animatedMesh;
         
-        // Handle different animation phases
         if (animData.phase === 'highlight') {
-            // Just pulse without decay
-            if (mesh instanceof THREE.Line) {
-                const basePulse = (Math.sin(elapsed * 0.008) + 1) * 0.5; // Faster frequency
-                const colorPhase = (Math.sin(elapsed * 0.003) + 1) * 0.5; // Slower color shift
+            if (copiedMesh instanceof THREE.Line) {
+                const baseFreq = 0.02;
+                const positions = copiedMesh.geometry.attributes.position;
+                const originalPositions = copiedMesh.userData.originalVertices;
                 
-                mesh.material.opacity = 0.4 + basePulse * 0.6; // More visible base opacity
-                mesh.material.linewidth = 1 + basePulse * 5; // More dramatic line width
+                for (let i = 0; i < positions.count; i++) {
+                    const idx = i * 3;
+                    const vertexPhase = i / positions.count;
+                    
+                    const time = elapsed * baseFreq;
+                    const jitterX = Math.random() * Math.sin(time + vertexPhase * Math.PI * 2) * 0.1;
+                    const jitterY = Math.random() * Math.cos(time * 1.5 + vertexPhase * Math.PI * 3) * 0.2;
+                    const jitterZ = Math.random() * Math.sin(time * 0.8 - vertexPhase * Math.PI) * 0.05;
+                    
+                    positions.array[idx] = originalPositions[idx] + jitterX;
+                    positions.array[idx + 1] = originalPositions[idx + 1] + jitterY;
+                    positions.array[idx + 2] = originalPositions[idx + 2] + jitterZ;
+                }
                 
-                // Add color shifting
-                mesh.material.color.setHSL(0.6 + colorPhase * 0.1, 1, 0.5);
-                mesh.material.needsUpdate = true;
+                positions.needsUpdate = true;
+                
+                const transitionDuration = 2000;
+                const colorPhase = Math.min(1, elapsed / transitionDuration);
+            
+                const originalColor = animData.originalMesh.material.color;
+                const brightRed = new THREE.Color('#ff8888');
+                copiedMesh.material.color.copy(originalColor).lerp(brightRed, colorPhase);
+                copiedMesh.material.needsUpdate = true;
             }
             return true;
         } else if (animData.phase === 'decay') {
-            // Calculate decay based on when decay phase started
             const decayElapsed = currentTime - animData.decayStartTime;
-            const decayPhase = Math.max(0, 1 - (decayElapsed / 10000)); // 10 second decay
-
+            const decayPhase = Math.max(0, 1 - (decayElapsed / this.decayDuration));
+            
             if (decayPhase <= 0) {
-                // Animation complete
-                if (mesh instanceof THREE.Line) {
-                    mesh.material.opacity = animData.originalProps.opacity;
-                    mesh.material.linewidth = animData.originalProps.linewidth;
-                    mesh.material.color.copy(animData.originalProps.color);
-                    mesh.material.needsUpdate = true;
-                }
+                copiedMesh.parent.remove(copiedMesh);
+                copiedMesh.geometry.dispose();
+                copiedMesh.material.dispose();
                 this.activeAnimations.delete(nodeId);
                 return false;
             }
-
-            // Apply decay effect
-            if (mesh instanceof THREE.Line) {
-                const basePulse = (Math.sin(elapsed * 0.008) + 1) * 0.5;
-                const colorPhase = (Math.sin(elapsed * 0.003) + 1) * 0.5;
-                const pulseWithDecay = basePulse * decayPhase;
+            
+            if (copiedMesh instanceof THREE.Line) {
+                const positions = copiedMesh.geometry.attributes.position;
+                const originalPositions = copiedMesh.userData.originalVertices;
                 
-                mesh.material.opacity = 0.4 + pulseWithDecay * 0.6;
-                mesh.material.linewidth = 1 + pulseWithDecay * 5;
-                mesh.material.color.setHSL(0.6 + colorPhase * 0.1, 1, 0.5);
-                mesh.material.needsUpdate = true;
+                for (let i = 0; i < positions.count; i++) {
+                    const idx = i * 3;
+                    const returnPhase = Math.pow(decayPhase, 2);
+                    
+                    positions.array[idx] = originalPositions[idx] + (positions.array[idx] - originalPositions[idx]) * returnPhase;
+                    positions.array[idx + 1] = originalPositions[idx + 1] + (positions.array[idx + 1] - originalPositions[idx + 1]) * returnPhase;
+                    positions.array[idx + 2] = originalPositions[idx + 2] + (positions.array[idx + 2] - originalPositions[idx + 2]) * returnPhase;
+                }
+                
+                positions.needsUpdate = true;
+                
+                const originalColor = animData.originalMesh.material.color;
+                copiedMesh.material.color.lerp(originalColor, 1 - decayPhase);
+                copiedMesh.material.needsUpdate = true;
             }
         }
-
         return true;
+    }
+
+    handleResponseComplete() {
+        const currentTime = performance.now();
+        this.log(`Response complete - starting decay for responding animations`);
+        
+        this.activeAnimations.forEach((animData, nodeId) => {
+            if (animData.isResponding && animData.phase === 'highlight') {
+                animData.phase = 'decay';
+                animData.decayStartTime = currentTime;
+                animData.isResponding = false;
+                this.log(`Started decay for node: ${nodeId}`);
+            }
+        });
     }
 
     startDecayPhase() {
         const currentTime = performance.now();
-        this.log(`Starting decay phase for ${this.activeAnimations.size} animations`);
-        
         this.activeAnimations.forEach((animData, nodeId) => {
             if (animData.phase === 'highlight') {
                 animData.phase = 'decay';
                 animData.decayStartTime = currentTime;
-                this.log(`Started decay for node: ${nodeId}`);
+                this.log(`Started decay for non-responding node: ${nodeId}`);
             }
         });
     }
@@ -158,18 +174,16 @@ class QueryAnimationManager {
         this.log(`Clearing ${this.activeAnimations.size} active animations`);
         
         this.activeAnimations.forEach((animData) => {
-            const mesh = animData.mesh;
-            if (mesh instanceof THREE.Line) {
-                mesh.material.opacity = animData.originalProps.opacity;
-                mesh.material.linewidth = animData.originalProps.linewidth;
-                mesh.material.color.copy(animData.originalProps.color);
-                mesh.material.needsUpdate = true;
+            const copiedMesh = animData.animatedMesh;
+            if (copiedMesh && copiedMesh.parent)
+                copiedMesh.parent.remove(copiedMesh);
+                copiedMesh.geometry.dispose();
+                copiedMesh.material.dispose();
             }
-        });
+        );
         
         this.activeAnimations.clear();
     }
 }
-
 // Export for use in other files
 window.QueryAnimationManager = QueryAnimationManager;

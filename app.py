@@ -11,6 +11,7 @@ from flask_cors import CORS
 import numpy as np
 from pathlib import Path
 from datetime import datetime
+from flask_socketio import SocketIO
 
 from llama_index.core import VectorStoreIndex, ComposableGraph, Settings
 from llama_index.embeddings.huggingface_optimum import OptimumEmbedding
@@ -26,6 +27,7 @@ from db_utils import VectorDBManager, get_or_create_index
 
 app = Flask(__name__)
 CORS(app)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
 # Get the absolute path of the application's root directory
 APP_ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -341,6 +343,12 @@ def get_retrieved_nodes(query_engine, query_str, context="main"):
         print(f"Number of nodes: {len(node_ids)}")
         print(f"Node IDs: {node_ids}")
         
+        # Emit socket event when nodes are retrieved
+        socketio.emit('nodes_retrieved', {
+            'context': context,
+            'node_ids': node_ids
+        })
+        
         node_data = {
             "context": context,
             "query": query_str,
@@ -350,7 +358,7 @@ def get_retrieved_nodes(query_engine, query_str, context="main"):
         }
         
         retrieved_nodes_data.append(node_data)
-        print(f"Added node data to retrieved_nodes_data: {node_data}\n")
+        #print(f"Added node data to retrieved_nodes_data: {node_data}\n")
         return nodes
         
     except Exception as e:
@@ -636,6 +644,9 @@ def chat():
                     save_chat_history(question, answer_text, citekeys)
                     print("Chat history saved successfully")
                     
+                    # Emit socket event when response is complete
+                    socketio.emit('chat_response_complete')
+                    
                     return jsonify({
                         'answer': answer_text,
                         'terminal_output': get_terminal_output(),
@@ -702,4 +713,4 @@ if __name__ == '__main__':
     print("="*80 + "\n")
     
     print("\nStarting Flask application on port 5001...")
-    app.run(debug=True, port=5001)
+    socketio.run(app, debug=True, port=5001)
