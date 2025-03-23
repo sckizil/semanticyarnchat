@@ -15,7 +15,7 @@ from datetime import datetime
 from llama_index.core import VectorStoreIndex, ComposableGraph, Settings
 from llama_index.embeddings.huggingface_optimum import OptimumEmbedding
 from llama_index.llms.lmstudio import LMStudio
-from llama_index.core.query_engine import RetrieverQueryEngine
+from llama_index.core.query_engine import RetrieverQueryEngine, ComposableGraphQueryEngine
 from llama_index.core.callbacks import CallbackManager, LlamaDebugHandler
 
 from glossaryCreation import extract_keywords, explain_keyword, format_glossary
@@ -201,6 +201,18 @@ def index():
             if not selected_dbs:
                 return jsonify({'error': 'No databases selected'}), 400
 
+            print(f"Processing databases: {selected_dbs}")
+            
+            # Get embeddings with better error handling
+            embeddings, metadata = db_manager.get_embeddings_and_metadata(selected_dbs)
+            
+            if embeddings is None or len(embeddings) == 0:
+                error_msg = "No embeddings found in selected databases"
+                print(f"Error: {error_msg}")
+                return jsonify({'error': error_msg}), 400
+                
+            print(f"Successfully retrieved {len(embeddings)} embeddings")
+            
             x_dim = int(request.form.get('x_dimension', 0))
             y_dim = int(request.form.get('y_dimension', 1))
             z_dim = int(request.form.get('z_dimension', 2))
@@ -277,10 +289,9 @@ def index():
             })
             
         except Exception as e:
-            import traceback
-            print(f"Error generating visualization: {str(e)}")
-            print(traceback.format_exc())
-            return jsonify({'error': str(e)}), 500
+            error_msg = f"Error processing request: {str(e)}"
+            print(error_msg)
+            return jsonify({'error': error_msg}), 500
     
     documents = []
     response = requests.get("http://localhost:23119/api/users/0/items?format=bibtex")
@@ -304,8 +315,53 @@ def index():
 
     return render_template('index.html', chat_history=chat_history, documents=documents, available_dbs=available_dbs)
 
+# Global variable to store node IDs and scores
+retrieved_nodes_data = []
+
+def get_retrieved_nodes(query_engine, query_str, context="main"):
+    """Retrieves and processes nodes from a query engine."""
+    nodes = []
+    try:
+        if isinstance(query_engine, RetrieverQueryEngine):
+            nodes = query_engine.retriever.retrieve(query_str)
+        elif isinstance(query_engine, ComposableGraphQueryEngine):
+            all_nodes = []
+            for sub_index in query_engine.index_struct.index_ids:
+                retriever = query_engine.sub_indices[sub_index].as_retriever()
+                retrieved = retriever.retrieve(query_str)
+                all_nodes.extend(retrieved)
+            nodes = all_nodes
+        else:
+            print(f"Unsupported query engine type: {type(query_engine)}")
+            return []
+        
+        # Add detailed logging
+        node_ids = [node.node.node_id for node in nodes]
+        print(f"\nRetrieved nodes for context '{context}':")
+        print(f"Number of nodes: {len(node_ids)}")
+        print(f"Node IDs: {node_ids}")
+        
+        node_data = {
+            "context": context,
+            "query": query_str,
+            "node_ids": node_ids,
+            "node_scores": [node.score for node in nodes],
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        retrieved_nodes_data.append(node_data)
+        print(f"Added node data to retrieved_nodes_data: {node_data}\n")
+        return nodes
+        
+    except Exception as e:
+        print(f"Error retrieving nodes: {str(e)}")
+        return []
+
 @app.route('/chat', methods=['POST'])
 def chat():
+    global retrieved_nodes_data
+    retrieved_nodes_data = []  # Clear previous data
+    
     print("Chat route called")
     try:
         data = request.get_json()
@@ -383,6 +439,7 @@ def chat():
                             glossary_query_engine = index.as_query_engine(
                                 response_mode="refine",
                                 verbose=False,
+                                similarity_top_k=9  # Add topk setting
                             )
                             print(f"Created query engine for {citekey}")
                             print(f"Query engine type: {type(glossary_query_engine)}")
@@ -393,6 +450,8 @@ def chat():
                         # Extract keywords
                         try:
                             num_keywords = glossary_mode  # Extract num_keywords from glossary_mode
+                            keyword_prompt = f"Extract {num_keywords} technical keywords from the document"
+                            get_retrieved_nodes(glossary_query_engine, keyword_prompt, "keyword_extraction")
                             keywords = extract_keywords(glossary_query_engine, num_keywords=num_keywords, metadata=metadata)
                             print(f"Extracted keywords for {citekey}: {keywords}")
                             all_keywords.extend(keywords)
@@ -409,6 +468,8 @@ def chat():
                         keywords_and_definitions = []
                         for keyword in all_keywords:
                             print(f"Processing keyword: {keyword}")
+                            definition_prompt = f"Define and explain the term '{keyword}'"
+                            get_retrieved_nodes(glossary_query_engine, definition_prompt, f"definition_{keyword}")
                             definition = explain_keyword(glossary_query_engine, keyword, metadata=metadata, number_of_words=word_count)
                             print(f"Got definition type: {type(definition)}")
                             if definition:
@@ -457,7 +518,8 @@ def chat():
                         
                         return jsonify({
                             'answer': response,
-                            'terminal_output': get_terminal_output()
+                            'terminal_output': get_terminal_output(),
+                            'retrieved_nodes_data': retrieved_nodes_data
                         })
                     except Exception as e:
                         print(f"Error formatting response: {str(e)}")
@@ -519,7 +581,8 @@ def chat():
                     print("Using single index directly (bypassing ComposableGraph)")
                     query_engine = indexes[0].as_query_engine(
                         response_mode=response_mode,
-                        verbose=False
+                        verbose=False,
+                        similarity_top_k=9  # Add topk setting
                     )
                     print(f"Created query engine for single document, type: {type(query_engine).__name__}")
                 # If multiple documents, use ComposableGraph
@@ -539,7 +602,8 @@ def chat():
                     # Create query engine from graph
                     query_engine = graph.as_query_engine(
                         response_mode=response_mode,
-                        verbose=False
+                        verbose=False,
+                        similarity_top_k=9  # Add topk setting
                     )
                     print(f"Created query engine from graph, type: {type(query_engine).__name__}")
                 
@@ -550,6 +614,10 @@ def chat():
                     # Handle query execution
                     formatted_question_with_word_count = f"""In {word_count} words, answer the question '{question}' using the information in the document. 
                     Reply as an expert in topic. Do not simplify. Use proper terminology and be precise."""
+                    
+                    # Track node retrieval before query
+                    get_retrieved_nodes(query_engine, formatted_question_with_word_count, "main_query")
+                    
                     response = query_engine.query(formatted_question_with_word_count)
                     print(f"Response received, type: {type(response).__name__}")
                     
@@ -570,7 +638,8 @@ def chat():
                     
                     return jsonify({
                         'answer': answer_text,
-                        'terminal_output': get_terminal_output()
+                        'terminal_output': get_terminal_output(),
+                        'retrieved_nodes_data': retrieved_nodes_data  # Include retrieved nodes data
                     })
                 except Exception as e:
                     print(f"Error executing query: {str(e)}")

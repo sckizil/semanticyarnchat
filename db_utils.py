@@ -149,55 +149,83 @@ class VectorDBManager:
 
         for db_name in db_names:
             try:
+                print(f"\nProcessing database: {db_name}")
+                if db_name not in self.available_dbs:
+                    print(f"Database {db_name} not found in available databases")
+                    continue
+
                 db_path = self.available_dbs[db_name]
                 chroma_client = chromadb.PersistentClient(path=db_path)
-                chroma_collection = chroma_client.get_or_create_collection("pdf_index")
+                
+                try:
+                    chroma_collection = chroma_client.get_collection(name="pdf_index")
+                    count = chroma_collection.count()
+                    print(f"Found {count} items in collection")
+                    
+                    if count == 0:
+                        print(f"Collection is empty for {db_name}")
+                        continue
 
-                results = chroma_collection.get(include=["embeddings", "metadatas"])
+                    # Get all items
+                    results = chroma_collection.get(
+                        limit=count,
+                        include=["embeddings", "metadatas", "documents"]
+                    )
+                    
+                    if not results or "embeddings" not in results:
+                        print(f"No results or embeddings for {db_name}")
+                        continue
 
-                if results and 'embeddings' in results:
-                    embeddings = results['embeddings']
-                    metadatas = results['metadatas']
-                    print(f"Found {len(embeddings)} embeddings in {db_name}")
+                    embeddings = results["embeddings"]
+                    metadatas = results.get("metadatas", [{}] * len(embeddings))
+                    ids = results.get("ids", [f"{db_name}_{i}" for i in range(len(embeddings))])
 
-                    for i, embedding in enumerate(embeddings):
-                        all_embeddings.append(np.array(embedding))
-                        metadata = metadatas[i]
-                        metadata['db_name'] = db_name # db_name ekliyoruz.
-                        all_metadata.append(metadata)
-                else:
-                    print(f"No embeddings found in {db_name}")
+                    # Process embeddings one by one
+                    for i, (embedding, metadata, id_) in enumerate(zip(embeddings, metadatas, ids)):
+                        try:
+                            # Convert to numpy array first
+                            emb_array = np.array(embedding, dtype=np.float32)
+                            
+                            # Check if embedding is valid using proper numpy comparisons
+                            if emb_array.size > 0 and np.any(~np.isnan(emb_array)) and np.any(~np.isinf(emb_array)):
+                                # Create metadata dictionary
+                                meta_dict = metadata if isinstance(metadata, dict) else {}
+                                meta_dict["db_name"] = db_name
+                                meta_dict["node_id"] = id_
+                                
+                                # Store valid embedding and metadata
+                                all_embeddings.append(emb_array)
+                                all_metadata.append(meta_dict)
+                            else:
+                                print(f"Skipping invalid embedding at index {i}")
+
+                        except Exception as e:
+                            print(f"Error processing embedding {i}: {str(e)}")
+                            continue
+
+                    print(f"Successfully processed {len(all_embeddings)} embeddings from {db_name}")
+
+                except Exception as e:
+                    print(f"Error accessing collection: {str(e)}")
+                    continue
 
             except Exception as e:
                 print(f"Error processing database {db_name}: {str(e)}")
+                continue
 
-        if all_embeddings:
-            try:
-                # Check if all embeddings have the same dimension
-                dims = [e.shape[0] for e in all_embeddings]
-                if len(set(dims)) > 1:
-                    print(f"Warning: Found embeddings with different dimensions: {set(dims)}")
-                    # Use the most common dimension
-                    from collections import Counter
-                    target_dim = Counter(dims).most_common(1)[0][0]
-                    print(f"Using most common dimension: {target_dim}")
-                    # Filter embeddings and metadata to only include those with the target dimension
-                    filtered = [(e, m) for e, m, d in zip(all_embeddings, all_metadata, dims) if d == target_dim]
-                    if filtered:
-                        all_embeddings, all_metadata = zip(*filtered)
-                    else:
-                        return None, None
-                else:
-                    print(f"All embeddings have dimension {dims[0]}")
-                
-                stacked_embeddings = np.vstack(all_embeddings)
-                print(f"Sample of retrieved embeddings: {all_embeddings[:3]}")
-                print(f"Sample of retrieved metadata: {all_metadata[:3]}")
-                return stacked_embeddings, all_metadata
-            except ValueError as e:
-                print(f"Error stacking embeddings: {str(e)}")
-                return None, None
-        return None, None
+        if not all_embeddings:
+            print("No valid embeddings collected")
+            return None, None
+
+        try:
+            # Stack embeddings into a single array
+            stacked = np.vstack(all_embeddings)
+            print(f"Final embeddings shape: {stacked.shape}")
+            return stacked, all_metadata
+
+        except Exception as e:
+            print(f"Error stacking embeddings: {str(e)}")
+            return None, None
 
     def get_database_stats(self):
         """Get statistics about each database"""

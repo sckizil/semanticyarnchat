@@ -71,9 +71,22 @@ class ChatManager {
                 throw new Error(data.error);
             }
 
+            // First handle retrieved nodes data to start highlighting
+            if (data.retrieved_nodes_data && window.visualizationManager) {
+                console.log('Processing retrieved nodes:', data.retrieved_nodes_data);
+                window.visualizationManager.handleRetrievedNodes(data.retrieved_nodes_data);
+            }
+
+            // Update chat UI with response
             this.appendChatMessage(question, data.answer);
             this.updateTerminalOutput(data.terminal_output);
             this.questionInput.value = '';
+
+            // Start decay phase after response is displayed
+            if (window.visualizationManager?.queryAnimationManager) {
+                console.log('Starting animation decay phase');
+                window.visualizationManager.queryAnimationManager.startDecayPhase();
+            }
 
         } catch (error) {
             console.error('Chat request error:', error);

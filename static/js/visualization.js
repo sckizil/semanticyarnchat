@@ -41,6 +41,8 @@ class VisualizationManager {
             this.initializationError = error;
             this.showOverlay('Error initializing visualization: ' + error.message, 'error');
         }
+
+        this.queryAnimationManager = new QueryAnimationManager();
     }
 
     initialize(callback) {
@@ -250,6 +252,11 @@ class VisualizationManager {
                     } catch (error) {
                         console.warn('Animation error:', error);
                     }
+                }
+                
+                // Update query animation if active
+                if (child.userData?.nodeId) {
+                    this.queryAnimationManager.updateAnimation(child, performance.now());
                 }
             });
         }
@@ -615,7 +622,11 @@ class VisualizationManager {
                             this.lookAt(camera.position);
                         }.bind(pointMesh);
                         
-                        // Store animation data
+                        // Log node ID assignment
+                        const nodeId = metadata[i]?.node_id;
+                        console.log(`Creating point ${i} with node_id: ${nodeId}`);
+                        
+                        // Store animation data with node_id
                         pointMesh.userData = {
                             curve: curve,
                             progress: initialProgress,
@@ -624,11 +635,18 @@ class VisualizationManager {
                             scatterLength: normalizedPoint[10],
                             scatterColor: normalizedPoint[11],
                             lastScatterTime: null,
-                            nextScatterTime: 0
+                            nextScatterTime: 0,
+                            nodeId: nodeId
+                        };
+                        
+                        // Store the same nodeId on the ring for animation
+                        yarn.userData = {
+                            nodeId: nodeId  // Add nodeId to the ring as well
                         };
                         
                         group.add(yarn);
                         group.add(pointMesh);
+                        
                     } catch (error) {
                         console.warn(`Error creating curve for point ${i}:`, error);
                     }
@@ -726,6 +744,21 @@ class VisualizationManager {
             };
             // Update with fresh data
             this.updatePointCloud(data.points, data.metadata);
+
+            // Handle retrieved nodes animation with logging
+            if (data.retrieved_nodes_data && this.points[0]) {
+                console.log('Retrieved nodes data:', data.retrieved_nodes_data);
+                const activeNodeIds = new Set();
+                
+                data.retrieved_nodes_data.forEach(nodeData => {
+                    console.log('Processing node data:', nodeData);
+                    nodeData.node_ids.forEach(id => activeNodeIds.add(id));
+                });
+                
+                console.log('Active node IDs:', Array.from(activeNodeIds));
+                this.queryAnimationManager.handleRetrievedNodes(Array.from(activeNodeIds), this.scene);
+            }
+
             this.hideOverlay();
         })
         .catch(error => {
@@ -900,6 +933,8 @@ class VisualizationManager {
         
         // Update chunk count
         document.getElementById('chunkCount').textContent = '0';
+
+        this.queryAnimationManager.clearAnimations();
     }
 
     showOverlay(message, type = '') {
@@ -975,7 +1010,29 @@ class VisualizationManager {
         // Update chunk count
         document.getElementById('chunkCount').textContent = '0';
     }
-}
 
-// Export for use in other files
+    handleRetrievedNodes(nodeData) {
+        console.log('Processing retrieved nodes data:', nodeData);
+        if (!nodeData || !nodeData.length || !this.scene) {
+            console.log('No valid node data or scene');
+            return;
+        }
+
+        // Extract all node IDs from the data
+        const allNodeIds = new Set();
+        nodeData.forEach(data => {
+            console.log('Node data entry:', data);
+            if (data.node_ids) {
+                data.node_ids.forEach(id => allNodeIds.add(id));
+            }
+        });
+
+        console.log('Collected node IDs for animation:', Array.from(allNodeIds));
+
+        // Trigger animation for these nodes
+        if (allNodeIds.size > 0) {
+            this.queryAnimationManager.handleRetrievedNodes(Array.from(allNodeIds), this.scene);
+        }
+    }
+}
 window.VisualizationManager = VisualizationManager;
