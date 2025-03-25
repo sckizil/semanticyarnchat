@@ -201,11 +201,15 @@ def index():
             print(f"Retrieved embeddings shape: {embeddings.shape}")
             print(f"Sample of raw embeddings: {embeddings[:3]}")
             
-            # Normalize embeddings to [-1, 1] range for better visualization
+            # Normalize embeddings to [-1, 1] range, handling zero division
             embeddings_min = embeddings.min(axis=0)
             embeddings_max = embeddings.max(axis=0)
-            embeddings_norm = 2 * (embeddings - embeddings_min) / (embeddings_max - embeddings_min) - 1
-            
+
+            denominator = embeddings_max - embeddings_min
+            denominator = np.where(denominator == 0, 1e-8, denominator)  # Prevent division by zero
+
+            embeddings_norm = 2 * (embeddings - embeddings_min) / denominator - 1
+
             print(f"Sample of normalized embeddings: {embeddings_norm[:3]}")
             
             # Prepare points data including all required dimensions
