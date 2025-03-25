@@ -680,11 +680,13 @@ class VisualizationManager {
                             lastScatterTime: null,
                             nextScatterTime: 0,
                             nodeId: nodeId
+                            node_id: nodeId 
                         };
                         
                         // Store the same nodeId on the ring for animation
                         yarn.userData = {
-                            nodeId: nodeId  // Add nodeId to the ring as well
+                            nodeId: nodeId
+                            node_id: nodeId   // Add nodeId to the ring as well
                         };
                         
                         group.add(yarn);

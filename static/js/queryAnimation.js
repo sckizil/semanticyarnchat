@@ -13,6 +13,7 @@ class QueryAnimationManager {
         this.affectedObjects = new Set(); // Track all affected objects
         this.originalMaterials = new Map(); // Store original materials
         this.queryStartTime = 0;
+        this.decayStartTime = null; // Add this missing property
         
         // Matrix effect parameters
         this.ghostCount = 7; // Number of ghost copies
@@ -50,11 +51,11 @@ class QueryAnimationManager {
 
         // Find all matching nodes
         scene.traverse((object) => {
-            if ((object instanceof THREE.Line || object instanceof THREE.Mesh) && 
-                object?.userData?.nodeId) {
-                const nodeId = object.userData.nodeId;
-                
-                if (nodeIds.includes(nodeId) && !this.activeQueryAnimations.has(nodeId)) {
+            // Check for both nodeId and node_id in userData
+            const objectNodeId = object?.userData?.nodeId || object?.userData?.node_id;
+            
+            if ((object instanceof THREE.Line || object instanceof THREE.Mesh) && objectNodeId) {
+                if (nodeIds.includes(objectNodeId) && !this.activeQueryAnimations.has(objectNodeId)) {
                     matchCount++;
                     this.highlightNode(object, currentTime);
                 }
@@ -65,12 +66,14 @@ class QueryAnimationManager {
     }
 
     highlightNode(object, startTime = performance.now()) {
-        if (!object?.userData?.nodeId) {
+        // Check for both nodeId and node_id in userData
+        const nodeId = object?.userData?.nodeId || object?.userData?.node_id;
+        
+        if (!nodeId) {
             this.log('Invalid object or missing nodeId');
             return;
         }
 
-        const nodeId = object.userData.nodeId;
         this.log(`Highlighting node: ${nodeId}`);
 
         // Store original material if not already stored

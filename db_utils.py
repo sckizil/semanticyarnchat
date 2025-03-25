@@ -110,7 +110,9 @@ def get_or_create_index(citekey: str, file_path: str, file_type: str, model_name
 class VectorDBManager:
     def __init__(self, app_directory):
         self.app_directory = Path(app_directory)
-        self.vector_db_directory = Path("/Users/sck/workspace/zotero_chat/vector_database") # Sabit konum
+        # Import STORAGE_DIR from app to use the centralized storage location
+        from app import STORAGE_DIR
+        self.vector_db_directory = Path(STORAGE_DIR)
         print(f"Looking for databases in: {self.vector_db_directory}")
         self.available_dbs = self._scan_for_dbs()
 
