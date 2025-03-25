@@ -82,12 +82,6 @@ class ChatManager {
             this.updateTerminalOutput(data.terminal_output);
             this.questionInput.value = '';
 
-            // Start decay phase after response is displayed
-            if (window.visualizationManager?.queryAnimationManager) {
-                console.log('Starting animation decay phase');
-                window.visualizationManager.queryAnimationManager.startDecayPhase();
-            }
-
         } catch (error) {
             console.error('Chat request error:', error);
             this.appendSystemMessage(`Error: ${error.message}`);
@@ -111,8 +105,8 @@ class ChatManager {
         
         const timestamp = new Date().toISOString();
         const selectedCitekeys = this.getSelectedCitekeys();
-        
-        chatItem.innerHTML = `
+        //I think we dont need this. We can just write answer to json and refresh the chat window.
+        chatItem.innerHTML = `  
             <div class="message">
                 <div class="message-question">${question}</div>
             </div>

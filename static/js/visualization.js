@@ -10,6 +10,7 @@ class VisualizationManager {
         this.animationFrameId = null;
         this.lastFrameTime = 0;
         this.firstVisualization = true;
+        this.debug = false;
         
         // Initialize overlay state
         this.isOverlayVisible = true;
@@ -29,7 +30,7 @@ class VisualizationManager {
                     console.log('Visualization successfully initialized');
                     // Force initial update after a short delay
                     setTimeout(() => {
-                        this.updateVisualization();
+                        this.redrawScene();
                     }, 100);
                 } else {
                     console.error('Visualization initialization failed');
@@ -180,7 +181,7 @@ class VisualizationManager {
                         // Force a complete refresh instead of just updating the point cloud
                         if (this.initialized) {
                             console.log(`Setting ${id} changed, triggering full visualization update`);
-                            this.updateVisualization();  // Call full update instead of updatePointCloud
+                            this.redrawScene();  // Call full update instead of redrawYarn
                         }
                     });
                 });
@@ -448,7 +449,7 @@ class VisualizationManager {
             });
         } else if (colorMode === 'rgb') {
             pointsData.forEach((point, i) => {
-                const colorValue = point[5] || 0;
+                const colorValue = point[5] || 0;  //color of the ring according to dimension 6 [5]
                 let r, g, b;
                 
                 if (colorValue < -0.33) {
@@ -463,7 +464,7 @@ class VisualizationManager {
                     b = 1 - t;
                 } else {
                     const t = (colorValue - 0.33) / 0.67;
-                    r = 1;
+                    r = 0,98;
                     g = 1 - t;
                     b = 0;
                 }
@@ -736,7 +737,7 @@ class VisualizationManager {
         return group;
     }
 
-    updateVisualization() {
+    redrawScene() {
         if (!this.initialized) {
             console.error('Cannot update: visualization not initialized');
             return;
@@ -785,7 +786,7 @@ class VisualizationManager {
                 metadata: data.metadata
             };
             // Update with fresh data
-            this.updatePointCloud(data.points, data.metadata);
+            this.redrawYarn(data.points, data.metadata);
 
             this.hideOverlay();
         })
@@ -795,7 +796,7 @@ class VisualizationManager {
         });
     }
 
-    updatePointCloud(pointsData, metadata) {
+    redrawYarn(pointsData, metadata) {
         try {
             console.log('Updating visualization with new settings');
             // Add debug logging for input data

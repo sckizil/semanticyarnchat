@@ -1,7 +1,7 @@
 class QueryAnimationManager {
     constructor() {
-        this.activeAnimations = new Map();
-        this.debug = true;
+        this.activeQueryAnimations = new Map();
+        this.debug = false;
         this.decayDuration = 10000;
     }
 
@@ -24,7 +24,7 @@ class QueryAnimationManager {
         scene.traverse((object) => {
             if (object instanceof THREE.Line && object?.userData?.nodeId) {
                 const nodeId = object.userData.nodeId;
-                if (nodeIds.includes(nodeId) && !this.activeAnimations.has(nodeId)) {
+                if (nodeIds.includes(nodeId) && !this.activeQueryAnimations.has(nodeId)) {
                     matchCount++;
                     this.startAnimation(object, currentTime);
                 }
@@ -32,7 +32,7 @@ class QueryAnimationManager {
         });
 
         this.log(`Found and animated ${matchCount} matching rings`);
-        this.log(`Active animations: ${this.activeAnimations.size}`);
+        this.log(`Active animations: ${this.activeQueryAnimations.size}`);
     }
 
     startAnimation(mesh, startTime = performance.now()) {
@@ -57,7 +57,7 @@ class QueryAnimationManager {
         
         mesh.parent.add(copiedMesh);
 
-        this.activeAnimations.set(nodeId, {
+        this.activeQueryAnimations.set(nodeId, {
             startTime,
             decayStartTime: null,
             originalMesh: mesh,
@@ -73,7 +73,7 @@ class QueryAnimationManager {
         if (!mesh?.userData?.nodeId) return false;
     
         const nodeId = mesh.userData.nodeId;
-        const animData = this.activeAnimations.get(nodeId);
+        const animData = this.activeQueryAnimations.get(nodeId);
         if (!animData) return false;
     
         const elapsed = currentTime - animData.startTime;
@@ -118,7 +118,7 @@ class QueryAnimationManager {
                 copiedMesh.parent.remove(copiedMesh);
                 copiedMesh.geometry.dispose();
                 copiedMesh.material.dispose();
-                this.activeAnimations.delete(nodeId);
+                this.activeQueryAnimations.delete(nodeId);
                 return false;
             }
             
@@ -149,7 +149,7 @@ class QueryAnimationManager {
         const currentTime = performance.now();
         this.log(`Response complete - starting decay for responding animations`);
         
-        this.activeAnimations.forEach((animData, nodeId) => {
+        this.activeQueryAnimations.forEach((animData, nodeId) => {
             if (animData.isResponding && animData.phase === 'highlight') {
                 animData.phase = 'decay';
                 animData.decayStartTime = currentTime;
@@ -159,21 +159,10 @@ class QueryAnimationManager {
         });
     }
 
-    startDecayPhase() {
-        const currentTime = performance.now();
-        this.activeAnimations.forEach((animData, nodeId) => {
-            if (animData.phase === 'highlight') {
-                animData.phase = 'decay';
-                animData.decayStartTime = currentTime;
-                this.log(`Started decay for non-responding node: ${nodeId}`);
-            }
-        });
-    }
-
     clearAnimations() {
-        this.log(`Clearing ${this.activeAnimations.size} active animations`);
+        this.log(`Clearing ${this.activeQueryAnimations.size} active animations`);
         
-        this.activeAnimations.forEach((animData) => {
+        this.activeQueryAnimations.forEach((animData) => {
             const copiedMesh = animData.animatedMesh;
             if (copiedMesh && copiedMesh.parent)
                 copiedMesh.parent.remove(copiedMesh);
@@ -182,7 +171,7 @@ class QueryAnimationManager {
             }
         );
         
-        this.activeAnimations.clear();
+        this.activeQueryAnimations.clear();
     }
 }
 // Export for use in other files

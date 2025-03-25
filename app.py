@@ -45,43 +45,7 @@ DEFAULT_MODEL = "meta-llama-3.1-8b-instruct"
 # Global variable to store available models
 AVAILABLE_MODELS = [DEFAULT_MODEL]
 
-def initialize_models():
-    """Initialize models by querying LMStudio API."""
-    global AVAILABLE_MODELS
-    
-    retry_count = 0
-    max_retries = 3
-    
-    while retry_count < max_retries:
-        try:
-            response = requests.get(f"{LMSTUDIO_BASE_URL}/models", timeout=5)
-            if response.status_code == 200:
-                models_data = response.json()
-                if 'data' in models_data and isinstance(models_data['data'], list):
-                    models = [model['id'] for model in models_data['data'] if 'id' in model]
-                    if models:
-                        AVAILABLE_MODELS = models
-                        # Ensure default model is always available
-                        if DEFAULT_MODEL not in AVAILABLE_MODELS:
-                            AVAILABLE_MODELS.insert(0, DEFAULT_MODEL)
-                        return True
-            
-            print(f"Failed to fetch models (status: {response.status_code})")
-        except Exception as e:
-            print(f"Error fetching models: {str(e)}")
-        
-        retry_count += 1
-        if retry_count < max_retries:
-            time.sleep(2 * retry_count)
-    
-    print(f"\nWarning: Using default model only: {DEFAULT_MODEL}")
-    AVAILABLE_MODELS = [DEFAULT_MODEL]
-    return False
 
-def initialize_app():
-    """Initialize the application state."""
-    print("\nInitializing application...")
-    initialize_models()
 
 # Initialize OptimumEmbedding
 onnx_model_path = "./bge_onnx"
@@ -191,7 +155,6 @@ def save_chat_history(question: str, answer: str, citekeys: List[str]):
 @app.route('/', methods=['GET', 'POST'])
 def index():
     """Render the main page."""
-    initialize_app()  # Ensure models are initialized
     chat_history = load_chat_history()
     # Get all documents from Zotero API (BibTeX only)
     available_dbs = db_manager.get_available_databases()
@@ -657,6 +620,8 @@ def chat():
                     print(f"Error type: {type(e).__name__}")
                     import traceback
                     print(f"Traceback: {traceback.format_exc()}")
+                    # Emit socket event when response is also failed
+                    socketio.emit('chat_response_complete')
                     return jsonify({'error': f'Error executing query: {str(e)}'})
 
             except Exception as e:
@@ -682,13 +647,24 @@ def chat():
 
 @app.route('/api/models', methods=['GET'])
 def get_models():
-    """Returns the list of available models."""
-    return jsonify({
-        'models': AVAILABLE_MODELS,
-        'default': DEFAULT_MODEL,
-        'success': True,
-        'count': len(AVAILABLE_MODELS)
-    })
+    """Returns the list of available models directly from LMStudio API."""
+    try:
+        response = requests.get(f"{LMSTUDIO_BASE_URL}/models", timeout=5)
+        if response.status_code == 200:
+            models_data = response.json()
+            if 'data' in models_data and isinstance(models_data['data'], list):
+                models = [model['id'] for model in models_data['data'] if 'id' in model]
+                if models:
+                    return jsonify({
+                        'models': models,
+                        'default': DEFAULT_MODEL,
+                        'success': True,
+                        'count': len(models)
+                    })
+        
+        return jsonify({'success': False, 'error': 'Failed to fetch models from LMStudio API'}), 500
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 # Initialize the database manager with proper path resolution
 app_dir = Path(os.path.dirname(os.path.abspath(__file__)))
@@ -709,7 +685,7 @@ def db_info():
 if __name__ == '__main__':
     # Print startup banner only once
     print("\n" + "="*80)
-    print("STARTING ZOTERO CHAT APPLICATION")
+    print("STARTING SEMANTIC YARN - ZOTERO CHAT")
     print("="*80 + "\n")
     
     print("\nStarting Flask application on port 5001...")
