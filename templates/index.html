@@ -279,7 +279,7 @@
          *
          * To add a new dimension effect:
          * 1. Update the backend (app.py) to include the new dimension in the request and response
-         * 2. Add the dimension to the form data in updateVisualization()
+         * 2. Add the dimension to the form data in redrawScene()
          * 3. Add the dimension to the 'dimensions' array in createSemanticYarn()
          * 4. Apply the dimension's effect in the ring generation or other relevant code
          * 5. Update this documentation to reflect the new dimension's purpose
@@ -298,7 +298,7 @@
                 if (e.target.classList.contains('doc-checkbox')) {
                     console.log('Document selection changed, updating visualization');
                     if (window.visualizationManager) {
-                        window.visualizationManager.updateVisualization();
+                        window.visualizationManager.redrawScene();
                     }
                 }
             });
@@ -310,7 +310,7 @@
                     input.addEventListener(eventType, function() {
                         if (window.visualizationManager?.currentData) {
                             console.log(`Settings ${input.id} changed, updating visualization`);
-                            window.visualizationManager.updatePointCloud(
+                            window.visualizationManager.redrawYarn(
                                 window.visualizationManager.currentData.points,
                                 window.visualizationManager.currentData.metadata
                             );

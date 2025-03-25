@@ -1,8 +1,26 @@
 class QueryAnimationManager {
     constructor() {
         this.activeQueryAnimations = new Map();
-        this.debug = false;
-        this.decayDuration = 10000;
+        this.debug = true; // Enable debug logging temporarily
+        
+        // Global timing variables
+        this.decayDuration = 5000; // 10 seconds decay
+        this.fadeToGrayscaleDuration = 1000; // 1 second to fade to grayscale
+        this.highlightFadeDuration = 2000; // 2 seconds to fade in highlighted nodes
+        
+        // Scene state tracking
+        this.isQueryActive = false;
+        this.affectedObjects = new Set(); // Track all affected objects
+        this.originalMaterials = new Map(); // Store original materials
+        this.queryStartTime = 0;
+        
+        // Matrix effect parameters
+        this.ghostCount = 7; // Number of ghost copies
+        this.ghostDistance = 0.1; // Distance between ghosts
+        this.ghostOpacity = 0.4; // Opacity of ghost copies
+        this.vibrationSpeed = 0.03; // Speed of vibration effect
+        this.vibrationAmount = 0.1; // Amount of position change
+        this.ghostObjects = new Map(); // Store ghost objects
     }
 
     log(message) {
@@ -15,140 +33,258 @@ class QueryAnimationManager {
             return;
         }
 
-        this.log(`\n=== Query Animation Start ===`);
+        const currentTime = performance.now();
+        
+        // First time nodes are retrieved, start the global effect
+        if (!this.isQueryActive) {
+            this.isQueryActive = true;
+            this.queryStartTime = currentTime;
+            this.applyGrayscaleEffect(scene);
+            this.log(`Starting query mode - turning visualization to B&W`);
+        }
+
+        this.log(`\n=== Processing Retrieved Nodes ===`);
         this.log(`Processing ${nodeIds.length} node IDs: ${nodeIds.join(', ')}`);
 
-        const currentTime = performance.now();
         let matchCount = 0;
 
+        // Find all matching nodes
         scene.traverse((object) => {
-            if (object instanceof THREE.Line && object?.userData?.nodeId) {
+            if ((object instanceof THREE.Line || object instanceof THREE.Mesh) && 
+                object?.userData?.nodeId) {
                 const nodeId = object.userData.nodeId;
+                
                 if (nodeIds.includes(nodeId) && !this.activeQueryAnimations.has(nodeId)) {
                     matchCount++;
-                    this.startAnimation(object, currentTime);
+                    this.highlightNode(object, currentTime);
                 }
             }
         });
 
-        this.log(`Found and animated ${matchCount} matching rings`);
-        this.log(`Active animations: ${this.activeQueryAnimations.size}`);
+        this.log(`Found and highlighted ${matchCount} matching objects`);
     }
 
-    startAnimation(mesh, startTime = performance.now()) {
-        if (!mesh?.userData?.nodeId) {
-            this.log('Invalid mesh or missing nodeId');
+    highlightNode(object, startTime = performance.now()) {
+        if (!object?.userData?.nodeId) {
+            this.log('Invalid object or missing nodeId');
             return;
         }
 
-        const nodeId = mesh.userData.nodeId;
-        this.log(`Starting animation for node: ${nodeId}`);
+        const nodeId = object.userData.nodeId;
+        this.log(`Highlighting node: ${nodeId}`);
 
-        const copiedMesh = mesh.clone();
-        copiedMesh.material = mesh.material.clone();
-        copiedMesh.material.color.set(0xff0000);
-        copiedMesh.material.transparent = false;
-        copiedMesh.userData = { ...mesh.userData, isAnimationCopy: true };
-        
-        if (copiedMesh.geometry.isBufferGeometry) {
-            const positions = copiedMesh.geometry.attributes.position.array;
-            copiedMesh.userData.originalVertices = Float32Array.from(positions);
+        // Store original material if not already stored
+        if (!this.originalMaterials.has(object.id)) {
+            this.originalMaterials.set(object.id, {
+                color: object.material.color.clone(),
+                opacity: object.material.opacity,
+                transparent: object.material.transparent
+            });
         }
-        
-        mesh.parent.add(copiedMesh);
+
+        // Set initial highlight state
+        object.material.transparent = true;
+        object.material.needsUpdate = true;
+
+        // Create ghost copies for Matrix effect
+        this.createGhostCopies(object);
 
         this.activeQueryAnimations.set(nodeId, {
             startTime,
             decayStartTime: null,
-            originalMesh: mesh,
-            animatedMesh: copiedMesh,
+            object: object,
             phase: 'highlight',
-            isResponding: true
+            isResponding: true,
+            lastVibrationUpdate: startTime,
+            vibrationOffset: { x: 0, y: 0, z: 0 }
         });
 
-        this.log(`Animation started for ${nodeId} with copied ring`);
+        this.log(`Animation started for ${nodeId}`);
     }
 
-    updateAnimation(mesh, currentTime) {
-        if (!mesh?.userData?.nodeId) return false;
+    createGhostCopies(object) {
+        if (!object?.userData?.nodeId) return;
+        const nodeId = object.userData.nodeId;
+        
+        // Remove any existing ghosts for this node
+        this.removeGhostCopies(nodeId);
+        
+        const ghosts = [];
+        
+        // Create ghost copies
+        for (let i = 0; i < this.ghostCount; i++) {
+            // Clone the object for ghost effect
+            let ghost;
+            
+            if (object instanceof THREE.Line) {
+                // For lines, we need to clone the geometry
+                const ghostGeometry = object.geometry.clone();
+                ghost = new THREE.Line(
+                    ghostGeometry,
+                    object.material.clone()
+                );
+            } else if (object instanceof THREE.Mesh) {
+                // For meshes
+                ghost = new THREE.Mesh(
+                    object.geometry,
+                    object.material.clone()
+                );
+            } else {
+                continue; // Skip if not a supported type
+            }
+            
+            // Copy position and rotation
+            ghost.position.copy(object.position);
+            ghost.rotation.copy(object.rotation);
+            ghost.scale.copy(object.scale);
+            
+            // Make semi-transparent
+            ghost.material.transparent = true;
+            ghost.material.opacity = this.ghostOpacity / (i + 1);
+            ghost.material.color = new THREE.Color(0.8, 0, 0); // Reddish
+            ghost.material.needsUpdate = true;
+            
+            // Add to scene
+            if (object.parent) {
+                object.parent.add(ghost);
+            }
+            
+            // Store reference
+            ghosts.push(ghost);
+        }
+        
+        this.ghostObjects.set(nodeId, ghosts);
+    }
+
+    removeGhostCopies(nodeId) {
+        const ghosts = this.ghostObjects.get(nodeId);
+        if (ghosts) {
+            ghosts.forEach(ghost => {
+                if (ghost.parent) {
+                    ghost.parent.remove(ghost);
+                }
+                if (ghost.geometry) {
+                    ghost.geometry.dispose();
+                }
+                if (ghost.material) {
+                    ghost.material.dispose();
+                }
+            });
+        }
+        this.ghostObjects.delete(nodeId);
+    }
+
+    updateAnimation(object, currentTime) {
+        // Global scene effect update
+        if (this.isQueryActive) {
+            this.updateGlobalEffect(currentTime);
+        }
+        
+        if (!object?.userData?.nodeId) return false;
     
-        const nodeId = mesh.userData.nodeId;
+        const nodeId = object.userData.nodeId;
         const animData = this.activeQueryAnimations.get(nodeId);
         if (!animData) return false;
     
         const elapsed = currentTime - animData.startTime;
-        const copiedMesh = animData.animatedMesh;
         
         if (animData.phase === 'highlight') {
-            if (copiedMesh instanceof THREE.Line) {
-                const baseFreq = 0.02;
-                const positions = copiedMesh.geometry.attributes.position;
-                const originalPositions = copiedMesh.userData.originalVertices;
-                
-                for (let i = 0; i < positions.count; i++) {
-                    const idx = i * 3;
-                    const vertexPhase = i / positions.count;
-                    
-                    const time = elapsed * baseFreq;
-                    const jitterX = Math.random() * Math.sin(time + vertexPhase * Math.PI * 2) * 0.1;
-                    const jitterY = Math.random() * Math.cos(time * 1.5 + vertexPhase * Math.PI * 3) * 0.2;
-                    const jitterZ = Math.random() * Math.sin(time * 0.8 - vertexPhase * Math.PI) * 0.05;
-                    
-                    positions.array[idx] = originalPositions[idx] + jitterX;
-                    positions.array[idx + 1] = originalPositions[idx + 1] + jitterY;
-                    positions.array[idx + 2] = originalPositions[idx + 2] + jitterZ;
-                }
-                
-                positions.needsUpdate = true;
-                
-                const transitionDuration = 2000;
-                const colorPhase = Math.min(1, elapsed / transitionDuration);
+            // Gradually increase opacity and turn red
+            const fadeInProgress = Math.min(1, elapsed / this.highlightFadeDuration);
             
-                const originalColor = animData.originalMesh.material.color;
-                const brightRed = new THREE.Color('#ff8888');
-                copiedMesh.material.color.copy(originalColor).lerp(brightRed, colorPhase);
-                copiedMesh.material.needsUpdate = true;
-            }
+            // Get original color
+            const originalMaterial = this.originalMaterials.get(object.id);
+            if (!originalMaterial) return true;
+            
+            // Transition to bright red
+            const redColor = new THREE.Color(1, 0, 0);
+            object.material.color.copy(redColor);
+            
+            // Increase opacity from grayscale level to full
+            object.material.opacity = 0.3 + (fadeInProgress * 0.7);
+            
+            // Add pulsing effect
+            const pulseFreq = 0.002;
+            const pulseIntensity = 0.2;
+            const pulse = 1 + (Math.sin(elapsed * pulseFreq) * pulseIntensity);
+            object.material.opacity *= pulse;
+            
+            // Update Matrix-style vibration effect
+            this.updateMatrixEffect(object, nodeId, animData, currentTime);
+            
+            object.material.needsUpdate = true;
             return true;
         } else if (animData.phase === 'decay') {
             const decayElapsed = currentTime - animData.decayStartTime;
-            const decayPhase = Math.max(0, 1 - (decayElapsed / this.decayDuration));
+            const decayProgress = Math.min(1, decayElapsed / this.decayDuration);
             
-            if (decayPhase <= 0) {
-                copiedMesh.parent.remove(copiedMesh);
-                copiedMesh.geometry.dispose();
-                copiedMesh.material.dispose();
+            if (decayProgress >= 1) {
+                // Animation complete, remove ghost copies
+                this.removeGhostCopies(nodeId);
+                // Don't restore yet - that happens in clearAnimations
                 this.activeQueryAnimations.delete(nodeId);
                 return false;
             }
             
-            if (copiedMesh instanceof THREE.Line) {
-                const positions = copiedMesh.geometry.attributes.position;
-                const originalPositions = copiedMesh.userData.originalVertices;
-                
-                for (let i = 0; i < positions.count; i++) {
-                    const idx = i * 3;
-                    const returnPhase = Math.pow(decayPhase, 2);
+            // Get original material
+            const originalMaterial = this.originalMaterials.get(object.id);
+            if (!originalMaterial) return true;
+            
+            // Transition from red to original color
+            const redColor = new THREE.Color(1, 0, 0);
+            object.material.color.copy(redColor).lerp(originalMaterial.color, decayProgress);
+            
+            // Keep full opacity during decay
+            object.material.opacity = 1.0;
+            
+            // Continue Matrix effect but reduce intensity as we decay
+            this.updateMatrixEffect(object, nodeId, animData, currentTime, 1 - decayProgress);
+            
+            object.material.needsUpdate = true;
+            return true;
+        }
+        
+        return false;
+    }
+    
+    updateMatrixEffect(object, nodeId, animData, currentTime, intensityMultiplier = 1) {
+        // Update vibration effect (slight position changes)
+        const timeSinceLastUpdate = currentTime - animData.lastVibrationUpdate;
+        
+        if (timeSinceLastUpdate > 50) { // Update every 50ms for performance
+            // Random vibration offset
+            const vibAmount = this.vibrationAmount * intensityMultiplier;
+            animData.vibrationOffset = {
+                x: (Math.random() * 2 - 1) * vibAmount,
+                y: (Math.random() * 2 - 1) * vibAmount,
+                z: (Math.random() * 2 - 1) * vibAmount
+            };
+            animData.lastVibrationUpdate = currentTime;
+            
+            // Update ghost positions with offset
+            const ghosts = this.ghostObjects.get(nodeId);
+            if (ghosts) {
+                ghosts.forEach((ghost, index) => {
+                    const multiplier = (index + 1) * this.ghostDistance;
+                    ghost.position.x = object.position.x + (animData.vibrationOffset.x * multiplier);
+                    ghost.position.y = object.position.y + (animData.vibrationOffset.y * multiplier);
+                    ghost.position.z = object.position.z + (animData.vibrationOffset.z * multiplier);
                     
-                    positions.array[idx] = originalPositions[idx] + (positions.array[idx] - originalPositions[idx]) * returnPhase;
-                    positions.array[idx + 1] = originalPositions[idx + 1] + (positions.array[idx + 1] - originalPositions[idx + 1]) * returnPhase;
-                    positions.array[idx + 2] = originalPositions[idx + 2] + (positions.array[idx + 2] - originalPositions[idx + 2]) * returnPhase;
-                }
-                
-                positions.needsUpdate = true;
-                
-                const originalColor = animData.originalMesh.material.color;
-                copiedMesh.material.color.lerp(originalColor, 1 - decayPhase);
-                copiedMesh.material.needsUpdate = true;
+                    // Adjust opacity based on pulse
+                    const pulseFreq = 0.002;
+                    const pulse = Math.sin((currentTime + index * 200) * pulseFreq);
+                    ghost.material.opacity = (this.ghostOpacity / (index + 1)) * (0.7 + 0.3 * pulse) * intensityMultiplier;
+                    ghost.material.needsUpdate = true;
+                });
             }
         }
-        return true;
     }
 
     handleResponseComplete() {
         const currentTime = performance.now();
-        this.log(`Response complete - starting decay for responding animations`);
+        this.log(`Response complete - starting decay for all animations`);
         
+        // Start decay for all active animations
         this.activeQueryAnimations.forEach((animData, nodeId) => {
             if (animData.isResponding && animData.phase === 'highlight') {
                 animData.phase = 'decay';
@@ -157,22 +293,147 @@ class QueryAnimationManager {
                 this.log(`Started decay for node: ${nodeId}`);
             }
         });
+        
+        // Store decay start time for global effect
+        this.decayStartTime = currentTime;
+        
+        // Schedule restoration of all objects
+        setTimeout(() => {
+            this.clearAnimations();
+        }, this.decayDuration);
+    }
+
+    applyGrayscaleEffect(scene) {
+        this.affectedObjects.clear();
+        this.originalMaterials.clear();
+        
+        // Process all visible objects in the scene
+        scene.traverse((object) => {
+            if ((object instanceof THREE.Mesh || object instanceof THREE.Line || 
+                 object instanceof THREE.Points) && object.material && object.visible) {
+                
+                // Store original material properties
+                const originalMaterial = {
+                    color: object.material.color.clone(),
+                    opacity: object.material.opacity,
+                    transparent: object.material.transparent
+                };
+                
+                this.originalMaterials.set(object.id, originalMaterial);
+                this.affectedObjects.add(object);
+                
+                // Make material transparent for transition
+                object.material.transparent = true;
+                object.material.needsUpdate = true;
+            }
+        });
+        
+        this.log(`Applied grayscale effect to ${this.affectedObjects.size} objects`);
+    }
+
+    updateGlobalEffect(currentTime) {
+        if (!this.isQueryActive) return;
+        
+        const elapsed = currentTime - this.queryStartTime;
+        
+        // If we're in decay phase
+        if (this.decayStartTime) {
+            const decayElapsed = currentTime - this.decayStartTime;
+            const decayProgress = Math.min(1, decayElapsed / this.decayDuration);
+            
+            // Gradually restore all non-highlighted objects to original colors
+            this.affectedObjects.forEach(object => {
+                if (!this.activeQueryAnimations.has(object?.userData?.nodeId)) {
+                    const originalMaterial = this.originalMaterials.get(object.id);
+                    if (originalMaterial && object.material) {
+                        // Transition from grayscale back to original color
+                        object.material.color.lerp(originalMaterial.color, decayProgress);
+                        
+                        // Restore original opacity
+                        object.material.opacity = 0.3 + (decayProgress * (originalMaterial.opacity - 0.3));
+                        
+                        // Special handling for Points (moving particles)
+                        if (object instanceof THREE.Points) {
+                            // Ensure points remain visible but desaturated
+                            object.material.opacity = Math.max(0.7, originalMaterial.opacity);
+                        }
+                        
+                        object.material.needsUpdate = true;
+                    }
+                }
+            });
+        } 
+        // Initial grayscale phase
+        else {
+            const fadeProgress = Math.min(1, elapsed / this.fadeToGrayscaleDuration);
+            
+            this.affectedObjects.forEach(object => {
+                if (!this.activeQueryAnimations.has(object?.userData?.nodeId)) {
+                    const originalMaterial = this.originalMaterials.get(object.id);
+                    if (originalMaterial && object.material) {
+                        // Special handling for Points (moving particles)
+                        if (object instanceof THREE.Points) {
+                            // Keep points visible but desaturate them
+                            const color = originalMaterial.color;
+                            const gray = (color.r + color.g + color.b) / 3;
+                            const desaturatedColor = new THREE.Color(
+                                color.r * 0.3 + gray * 0.7,
+                                color.g * 0.3 + gray * 0.7,
+                                color.b * 0.3 + gray * 0.7
+                            );
+                            object.material.color.copy(color).lerp(desaturatedColor, fadeProgress);
+                            object.material.opacity = Math.max(0.7, originalMaterial.opacity);
+                        } else {
+                            // Convert to grayscale for other objects
+                            const color = originalMaterial.color;
+                            const gray = (color.r + color.g + color.b) / 3;
+                            const grayColor = new THREE.Color(gray, gray, gray);
+                            
+                            // Interpolate between original and gray
+                            object.material.color.copy(color).lerp(grayColor, fadeProgress);
+                            
+                            // Reduce opacity
+                            const targetOpacity = 0.3;
+                            object.material.opacity = originalMaterial.opacity - 
+                                (fadeProgress * (originalMaterial.opacity - targetOpacity));
+                        }
+                        
+                        object.material.needsUpdate = true;
+                    }
+                }
+            });
+        }
     }
 
     clearAnimations() {
-        this.log(`Clearing ${this.activeQueryAnimations.size} active animations`);
+        this.log(`Clearing animations and restoring original appearance`);
         
-        this.activeQueryAnimations.forEach((animData) => {
-            const copiedMesh = animData.animatedMesh;
-            if (copiedMesh && copiedMesh.parent)
-                copiedMesh.parent.remove(copiedMesh);
-                copiedMesh.geometry.dispose();
-                copiedMesh.material.dispose();
+        // Remove all ghost objects
+        this.ghostObjects.forEach((ghosts, nodeId) => {
+            this.removeGhostCopies(nodeId);
+        });
+        
+        // Restore all affected objects to their original state
+        this.affectedObjects.forEach(object => {
+            const originalMaterial = this.originalMaterials.get(object.id);
+            if (originalMaterial && object.material) {
+                object.material.color.copy(originalMaterial.color);
+                object.material.opacity = originalMaterial.opacity;
+                object.material.transparent = originalMaterial.transparent;
+                object.material.needsUpdate = true;
             }
-        );
+        });
         
+        // Clear all tracking collections
         this.activeQueryAnimations.clear();
+        this.affectedObjects.clear();
+        this.originalMaterials.clear();
+        this.ghostObjects.clear();
+        this.isQueryActive = false;
+        
+        this.log("Query animation cleared, visualization restored to normal");
     }
 }
+
 // Export for use in other files
 window.QueryAnimationManager = QueryAnimationManager;

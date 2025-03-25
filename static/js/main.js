@@ -49,10 +49,10 @@ document.addEventListener('DOMContentLoaded', async function() {
         console.log('All managers initialized successfully');
 
         // Update visualization and explicitly export functions
-        window.updateVisualization = function() {
-            console.log('Global updateVisualization called');
+        window.redrawScene = function() {
+            console.log('Global redrawScene called');
             if (window.visualizationManager) {
-                window.visualizationManager.updateVisualization();
+                window.visualizationManager.redrawScene();
             } else {
                 console.error('VisualizationManager not initialized');
             }
@@ -72,7 +72,7 @@ document.addEventListener('DOMContentLoaded', async function() {
         setTimeout(() => {
             console.log('Triggering initial visualization');
             if (window.visualizationManager) {
-                window.visualizationManager.updateVisualization();
+                window.visualizationManager.redrawScene();
             }
         }, 500);
 
