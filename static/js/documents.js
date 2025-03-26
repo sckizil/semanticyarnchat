@@ -66,7 +66,7 @@ class DocumentManager {
         console.log('Triggering visualization update after document selection');
         setTimeout(() => {
             if (window.visualizationManager) {
-                window.visualizationManager.updateVisualization();
+                window.visualizationManager.redrawScene();
             }
         }, 100);
     }
@@ -115,8 +115,8 @@ class DocumentManager {
                 window.handleGlossaryModeVisibility(count);
             }
 
-            if (typeof window.updateVisualization === 'function') {
-                window.updateVisualization();
+            if (typeof window.redrawScene === 'function') {
+                window.redrawScene();
             }
         }
     }

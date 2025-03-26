@@ -47,7 +47,7 @@ class SettingsManager {
                     // Directly trigger visualization update if available
                     if (window.visualizationManager?.currentData) {
                         console.log('Triggering immediate visualization update');
-                        window.visualizationManager.updatePointCloud(
+                        window.visualizationManager.redrawYarn(
                             window.visualizationManager.currentData.points,
                             window.visualizationManager.currentData.metadata
                         );
@@ -192,7 +192,7 @@ class SettingsManager {
     // Add utility method to force update
     forceVisualizationUpdate() {
         if (window.visualizationManager?.currentData) {
-            window.visualizationManager.updatePointCloud(
+            window.visualizationManager.redrawYarn(
                 window.visualizationManager.currentData.points,
                 window.visualizationManager.currentData.metadata
             );
