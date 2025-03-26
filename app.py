@@ -432,6 +432,8 @@ def chat():
                             all_keywords.extend(keywords)
                         except Exception as e:
                             print(f"Error extracting keywords for {citekey}: {str(e)}")
+                            # Emit socket event when response is complete
+                            socketio.emit('chat_response_complete')
                             continue
                     
                     if not all_keywords:
@@ -463,6 +465,8 @@ def chat():
                     except Exception as e:
                         print(f"Error generating definitions: {str(e)}")
                         print(f"Error type: {type(e)}")
+                        # Emit socket event when response is complete
+                        socketio.emit('chat_response_complete')
                         import traceback
                         print(f"Traceback: {traceback.format_exc()}")
                         return jsonify({'error': f'Error generating definitions: {str(e)}'})
@@ -487,7 +491,11 @@ def chat():
                                 answer=response,
                                 citekeys=citekeys
                             )
+                            
                             print("Successfully saved glossary to chat history")
+                            # Emit socket event when response is complete
+                            socketio.emit('chat_response_complete')
+
                         except Exception as e:
                             print(f"Error saving glossary to chat history: {str(e)}")
                         
@@ -500,6 +508,8 @@ def chat():
                         print(f"Error formatting response: {str(e)}")
                         print(f"Error type: {type(e)}")
                         import traceback
+                        # Emit socket event when response is complete
+                        socketio.emit('chat_response_complete')
                         print(f"Traceback: {traceback.format_exc()}")
                         return jsonify({'error': f'Error formatting response: {str(e)}'})
                     

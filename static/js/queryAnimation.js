@@ -16,11 +16,11 @@ class QueryAnimationManager {
         this.decayStartTime = null; // Add this missing property
         
         // Matrix effect parameters
-        this.ghostCount = 7; // Number of ghost copies
-        this.ghostDistance = 0.1; // Distance between ghosts
-        this.ghostOpacity = 0.4; // Opacity of ghost copies
-        this.vibrationSpeed = 0.03; // Speed of vibration effect
-        this.vibrationAmount = 0.1; // Amount of position change
+        this.ghostCount = 10; // Number of ghost copies
+        this.ghostDistance = 0.5; // Distance between ghosts
+        this.ghostOpacity = 0.8; // Opacity of ghost copies
+        this.vibrationSpeed = 1; // Speed of vibration effect
+        this.vibrationAmount = 1; // Amount of position change
         this.ghostObjects = new Map(); // Store ghost objects
     }
 
@@ -28,7 +28,7 @@ class QueryAnimationManager {
         if (this.debug) console.log(`[QueryAnimation] ${message}`);
     }
 
-    handleRetrievedNodes(nodeIds, scene) {
+    handleRetrievedNodes(nodeIds, scene, nodeMap = null) {
         if (!Array.isArray(nodeIds) || !scene) {
             this.log('Invalid input: nodeIds must be an array and scene must be provided');
             return;
@@ -49,18 +49,29 @@ class QueryAnimationManager {
 
         let matchCount = 0;
 
-        // Find all matching nodes
-        scene.traverse((object) => {
-            // Check for both nodeId and node_id in userData
-            const objectNodeId = object?.userData?.nodeId || object?.userData?.node_id;
-            
-            if ((object instanceof THREE.Line || object instanceof THREE.Mesh) && objectNodeId) {
-                if (nodeIds.includes(objectNodeId) && !this.activeQueryAnimations.has(objectNodeId)) {
+        // Use direct lookup if available instead of scene traversal
+        if (nodeMap) {
+            nodeIds.forEach(nodeId => {
+                const object = nodeMap.get(nodeId);
+                if (object && !this.activeQueryAnimations.has(nodeId)) {
                     matchCount++;
                     this.highlightNode(object, currentTime);
                 }
-            }
-        });
+            });
+        } else {
+            // Fallback to scene traversal
+            scene.traverse((object) => {
+                // Check for both nodeId and node_id in userData
+                const objectNodeId = object?.userData?.nodeId || object?.userData?.node_id;
+                
+                if ((object instanceof THREE.Line || object instanceof THREE.Mesh) && objectNodeId) {
+                    if (nodeIds.includes(objectNodeId) && !this.activeQueryAnimations.has(objectNodeId)) {
+                        matchCount++;
+                        this.highlightNode(object, currentTime);
+                    }
+                }
+            });
+        }
 
         this.log(`Found and highlighted ${matchCount} matching objects`);
     }
@@ -271,13 +282,7 @@ class QueryAnimationManager {
                     const multiplier = (index + 1) * this.ghostDistance;
                     ghost.position.x = object.position.x + (animData.vibrationOffset.x * multiplier);
                     ghost.position.y = object.position.y + (animData.vibrationOffset.y * multiplier);
-                    ghost.position.z = object.position.z + (animData.vibrationOffset.z * multiplier);
-                    
-                    // Adjust opacity based on pulse
-                    const pulseFreq = 0.002;
-                    const pulse = Math.sin((currentTime + index * 200) * pulseFreq);
-                    ghost.material.opacity = (this.ghostOpacity / (index + 1)) * (0.7 + 0.3 * pulse) * intensityMultiplier;
-                    ghost.material.needsUpdate = true;
+                    ghost.position.z = object.position.z + (animData.vibrationOffset.z * multiplier);                   
                 });
             }
         }
